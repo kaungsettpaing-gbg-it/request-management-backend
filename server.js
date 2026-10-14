@@ -306,6 +306,12 @@ app.get('/api/export/requests', async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', async () => {
-  await initSuperAdmin();
+  try {
+    if (typeof initSuperAdmin === 'function') {
+      await initSuperAdmin();
+    }
+  } catch (err) {
+    console.error("Auto Admin Init Error:", err);
+  }
   console.log(`[ENTERPRISE SECURE CLOUD SERVER] Running on port ${PORT}`);
 });
