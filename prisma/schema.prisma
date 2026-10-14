@@ -8,16 +8,15 @@ datasource db {
 }
 
 model User {
-  id               Int        @id @default(autoincrement())
-  name             String
-  email            String     @unique
-  password         String
-  department       String     @default("General")
-  role             String     @default("STAFF")
-  signature        String?    // E-signature Image Path
-  requests         Request[]
-  auditLogs        AuditLog[]
-  createdAt        DateTime   @default(now())
+  id         Int        @id @default(autoincrement())
+  email      String     @unique
+  password   String
+  role       String     @default("USER")
+  telegramId String?
+  otp        String?
+  otpExpiry  DateTime?
+  requests   Request[]
+  auditLogs  AuditLog[]
 }
 
 model Request {
@@ -39,7 +38,7 @@ model Request {
 
 model AuditLog {
   id        Int      @id @default(autoincrement())
-  action    String   // e.g., "APPROVED", "REJECTED", "SUBMITTED"
+  action    String // e.g., "APPROVED", "REJECTED", "SUBMITTED"
   remarks   String?
   userId    Int
   user      User     @relation(fields: [userId], references: [id])

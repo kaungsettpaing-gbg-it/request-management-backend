@@ -24,29 +24,76 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Temporary MFA store (In-memory for session verification)
-const activeMfaCodes = {};
+// Telegram Bot Token Configuration
+const TELEGRAM_BOT_TOKEN = '8535213758:AAE9IiL25d7RxcYEv4MmFwRi2LX3ZS8cREw';
+const SUPER_ADMIN_TELE_USERNAME = 'okeydokey2'; // @okeydokey2
+
+// Helper function to send Telegram OTP message
+async function sendTelegramOTP(chatId, otpCode) {
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: `🔐 *Security Verification*\n\nYour 2FA Login Code is: \`${otpCode}\`\nThis code will expire in 5 minutes.`,
+        parse_mode: 'Markdown'
+      })
+    });
+    const data = await response.json();
+    return data.ok;
+  } catch (error) {
+    console.error("Telegram API Error:", error.message);
+    return false;
+  }
+}
+
+// Helper function to auto-detect Chat ID from Username via Bot Updates
+async function getChatIdFromUsername(username) {
+  try {
+    const cleanUsername = username.replace('@', '').toLowerCase();
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.ok && data.result) {
+      for (const update of data.result.reverse()) {
+        const msg = update.message || update.edited_message;
+        if (msg && msg.from && msg.from.username && msg.from.username.toLowerCase() === cleanUsername) {
+          return msg.chat.id.toString();
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error fetching Telegram Chat ID:", err.message);
+  }
+  return null;
+}
 
 async function initSuperAdmin() {
   try {
     const hashedPassword = await bcrypt.hash('085236', 10);
+    
+    // Auto lookup Chat ID for @okeydokey2 from Telegram Bot updates
+    let detectedChatId = await getChatIdFromUsername(SUPER_ADMIN_TELE_USERNAME);
+
+    const adminData = {
+      name: 'Kaung Sett Paing',
+      email: 'kaungsettpaing@admin.com',
+      password: hashedPassword,
+      department: 'Admin',
+      role: 'SUPER_ADMIN',
+      ...(detectedChatId && { telegramId: detectedChatId })
+    };
+
     await prisma.user.upsert({
       where: { email: 'kaungsettpaing@admin.com' },
-      update: {
-        name: 'Kaung Sett Paing',
-        password: hashedPassword,
-        role: 'SUPER_ADMIN',
-        department: 'Admin'
-      },
-      create: {
-        name: 'Kaung Sett Paing',
-        email: 'kaungsettpaing@admin.com',
-        password: hashedPassword,
-        department: 'Admin',
-        role: 'SUPER_ADMIN'
-      }
+      update: adminData,
+      create: adminData
     });
-    console.log("--> SUPER_ADMIN Account (kaungsettpaing@admin.com) Hash-Verified & Ready!");
+
+    console.log(`--> SUPER_ADMIN Ready! (${detectedChatId ? 'Telegram Chat ID Linked: ' + detectedChatId : 'Telegram Chat ID pending - please send /start to bot'})`);
   } catch (err) {
     console.error("Auto Admin Error:", err.message);
   }
@@ -55,7 +102,7 @@ async function initSuperAdmin() {
 // User Registration with Password Hashing
 app.post('/api/users', async (req, res) => {
   try {
-    const { name, email, password, department, role, accessExpiry } = req.body;
+    const { name, email, password, department, role, accessExpiry, telegramId } = req.body;
     const hashedPassword = await bcrypt.hash(password, 10);
     
     const newUser = await prisma.user.create({
@@ -64,7 +111,8 @@ app.post('/api/users', async (req, res) => {
         email, 
         password: hashedPassword, 
         department: department || "General", 
-        role: role || "STAFF"
+        role: role || "STAFF",
+        telegramId: telegramId || null
       }
     });
     res.json({ message: "User created successfully with security hashing", user: newUser });
@@ -73,11 +121,11 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-// Login with Password Hashing Verification & MFA Generation
+// Login with Password Hashing Verification & Telegram 2FA Generation
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await prisma.user.findFirst({
+    let user = await prisma.user.findFirst({
       where: { OR: [{ email: email }, { name: email }] }
     });
 
@@ -99,12 +147,43 @@ app.post('/api/login', async (req, res) => {
       user.role = 'STAFF';
     }
 
-    // MFA Enforcement for Executive / Admin roles
+    // MFA / 2FA Enforcement for Executive / Admin roles via Telegram Bot
     if (['SUPER_ADMIN', 'ADMIN', 'GM', 'DGM'].includes(user.role)) {
+      
+      // Auto-fetch Telegram Chat ID if missing
+      if (!user.telegramId) {
+        const autoChatId = await getChatIdFromUsername(SUPER_ADMIN_TELE_USERNAME);
+        if (autoChatId) {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: { telegramId: autoChatId }
+          });
+        }
+      }
+
+      if (!user.telegramId) {
+        return res.status(400).json({ 
+          error: "Telegram Chat ID is not linked. Please start the Telegram Bot by sending /start first." 
+        });
+      }
+
       const code = Math.floor(100000 + Math.random() * 900000).toString();
-      activeMfaCodes[user.email] = code;
-      console.log(`[SECURITY ALERT] MFA Verification Code for ${user.email}: ${code}`);
-      return res.json({ requiresMfa: true, email: user.email });
+      const expiry = new Date(Date.now() + 5 * 60 * 1000); // Valid for 5 minutes
+
+      // Save OTP to Database
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { otp: code, otpExpiry: expiry }
+      });
+
+      // Send via Telegram Bot
+      const sent = await sendTelegramOTP(user.telegramId, code);
+      if (!sent) {
+        return res.status(500).json({ error: "Failed to send verification code via Telegram Bot." });
+      }
+
+      console.log(`[TELEGRAM 2FA] Code sent to ${user.email} (Chat ID: ${user.telegramId})`);
+      return res.json({ requiresMfa: true, email: user.email, message: "2FA Code sent to your Telegram!" });
     }
 
     res.json({ message: "Login successful", user });
@@ -113,15 +192,31 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// MFA Verification Endpoint
+// Telegram 2FA / MFA Verification Endpoint
 app.post('/api/verify-mfa', async (req, res) => {
-  const { email, code } = req.body;
-  if (activeMfaCodes[email] && activeMfaCodes[email] === code) {
-    delete activeMfaCodes[email];
+  try {
+    const { email, code } = req.body;
     const user = await prisma.user.findUnique({ where: { email } });
-    return res.json({ message: "MFA Authentication Successful", user });
+
+    if (!user) {
+      return res.status(400).json({ error: "User not found" });
+    }
+
+    // Validate OTP and Expiry
+    if (!user.otp || user.otp !== code || (user.otpExpiry && new Date() > new Date(user.otpExpiry))) {
+      return res.status(400).json({ error: "Invalid or expired 2FA verification code" });
+    }
+
+    // Clear OTP after successful validation
+    await prisma.user.update({
+      where: { email },
+      data: { otp: null, otpExpiry: null }
+    });
+
+    res.json({ message: "MFA Authentication Successful", user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  return res.status(400).json({ error: "Invalid MFA Code" });
 });
 
 // Fetch Users (Principle of Least Privilege Scope)
@@ -138,13 +233,14 @@ app.get('/api/users', async (req, res) => {
 app.patch('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { role, department, accessExpiry } = req.body;
+    const { role, department, accessExpiry, telegramId } = req.body;
 
     const updatedUser = await prisma.user.update({
       where: { id: Number(id) },
       data: { 
         role, 
         department,
+        ...(telegramId !== undefined && { telegramId }),
         ...(accessExpiry && { accessExpiry: new Date(accessExpiry) })
       }
     });
