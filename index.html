@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Request Management System</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f4f4f9; color: #333; }
+        .container { max-width: 600px; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h2 { color: #007BFF; margin-top: 0; }
+        input, textarea { width: 100%; padding: 10px; margin: 8px 0 15px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007BFF; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        .request-item { background: #e9ecef; padding: 12px; margin-top: 10px; border-radius: 4px; border-left: 5px solid #007BFF; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Request Management System</h2>
+        
+        <h3>1. Submit New Request</h3>
+        <form id="requestForm">
+            <input type="number" id="userId" placeholder="User ID (e.g., 2)" required>
+            <input type="text" id="title" placeholder="Request Title (e.g., Leave)" required>
+            <textarea id="description" placeholder="Description..."></textarea>
+            <button type="submit">Submit Request</button>
+        </form>
+
+        <hr style="margin: 25px 0; border: 0; border-top: 1px solid #ddd;">
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0;">2. All Requests List</h3>
+            <button onclick="loadRequests()" style="background: #6c757d;">Refresh List</button>
+        </div>
+        
+        <div id="requestList" style="margin-top: 15px;">Loading...</div>
+    </div>
+
+    <script>
+        document.getElementById('requestForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const userId = document.getElementById('userId').value;
+            const title = document.getElementById('title').value;
+            const description = document.getElementById('description').value;
+
+            try {
+                const res = await fetch('/api/requests', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, title, description })
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    alert(data.message);
+                    document.getElementById('requestForm').reset();
+                    loadRequests();
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch (err) {
+                alert("Failed to connect to server");
+            }
+        });
+
+        async function loadRequests() {
+            try {
+                const res = await fetch('/api/requests');
+                const requests = await res.json();
+                const listDiv = document.getElementById('requestList');
+                listDiv.innerHTML = '';
+
+                if (requests.length === 0) {
+                    listDiv.innerHTML = '<p>No requests found.</p>';
+                    return;
+                }
+
+                requests.forEach(req => {
+                    listDiv.innerHTML += `
+                        <div class="request-item">
+                            <strong>${req.title}</strong> [${req.status}]<br>
+                            <small>${req.description || ''}</small><br>
+                            <em>User ID: ${req.userId}</em>
+                        </div>
+                    `;
+                });
+            } catch (err) {
+                document.getElementById('requestList').innerHTML = '<p style="color: red;">Failed to load requests.</p>';
+            }
+        }
+
+        loadRequests();
+    </script>
+</body>
+</html>
