@@ -313,5 +313,5 @@ app.listen(PORT, '0.0.0.0', async () => {
   } catch (err) {
     console.error("Auto Admin Init Error:", err);
   }
-  console.log(`[ENTERPRISE SECURE CLOUD SERVER] Running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
