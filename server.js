@@ -24,11 +24,11 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Telegram Bot Token Configuration
+// Telegram Bot Configuration
 const TELEGRAM_BOT_TOKEN = '8535213758:AAE9IiL25d7RxcYEv4MmFwRi2LX3ZS8cREw';
-const SUPER_ADMIN_TELE_USERNAME = 'okeydokey2'; // @okeydokey2
+const SUPER_ADMIN_TELE_USERNAME = 'okeydokey2';
 
-// Helper function to send Telegram OTP message
+// Send Telegram Message
 async function sendTelegramOTP(chatId, otpCode) {
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
@@ -37,7 +37,7 @@ async function sendTelegramOTP(chatId, otpCode) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: `🔐 *Security Verification*\n\nYour 2FA Login Code is: \`${otpCode}\`\nThis code will expire in 5 minutes.`,
+        text: `🔐 *Security Verification*\n\nYour Login 2FA Code is: \`${otpCode}\`\nThis code expires in 5 minutes.`,
         parse_mode: 'Markdown'
       })
     });
@@ -49,10 +49,11 @@ async function sendTelegramOTP(chatId, otpCode) {
   }
 }
 
-// Helper function to auto-detect Chat ID from Username via Bot Updates
+// Get Chat ID by Telegram Username
 async function getChatIdFromUsername(username) {
+  if (!username) return null;
   try {
-    const cleanUsername = username.replace('@', '').toLowerCase();
+    const cleanUsername = username.replace('@', '').trim().toLowerCase();
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`;
     const response = await fetch(url);
     const data = await response.json();
@@ -71,11 +72,10 @@ async function getChatIdFromUsername(username) {
   return null;
 }
 
+// Auto Init Super Admin
 async function initSuperAdmin() {
   try {
     const hashedPassword = await bcrypt.hash('085236', 10);
-    
-    // Auto lookup Chat ID for @okeydokey2 from Telegram Bot updates
     let detectedChatId = await getChatIdFromUsername(SUPER_ADMIN_TELE_USERNAME);
 
     const adminData = {
@@ -84,7 +84,7 @@ async function initSuperAdmin() {
       password: hashedPassword,
       department: 'Admin',
       role: 'SUPER_ADMIN',
-      ...(detectedChatId && { telegramId: detectedChatId })
+      telegramId: SUPER_ADMIN_TELE_USERNAME
     };
 
     await prisma.user.upsert({
@@ -93,52 +93,68 @@ async function initSuperAdmin() {
       create: adminData
     });
 
-    console.log(`--> SUPER_ADMIN Ready! (${detectedChatId ? 'Telegram Chat ID Linked: ' + detectedChatId : 'Telegram Chat ID pending - please send /start to bot'})`);
+    console.log(`--> SUPER_ADMIN Ready! Username: @${SUPER_ADMIN_TELE_USERNAME}`);
   } catch (err) {
     console.error("Auto Admin Error:", err.message);
   }
 }
 
-// User Registration with Password Hashing
+// User Registration
 app.post('/api/users', async (req, res) => {
   try {
-    const { name, email, password, department, role, accessExpiry, telegramId } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const { name, email, password, department, role, telegramUsername } = req.body;
     
+    if (!telegramUsername) {
+      return res.status(400).json({ error: "Telegram Username is required." });
+    }
+
+    const cleanTelegram = telegramUsername.replace('@', '').trim();
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     const newUser = await prisma.user.create({
       data: { 
         name, 
-        email, 
+        email: email ? email.trim().toLowerCase() : `${cleanTelegram}@telegram.local`, 
         password: hashedPassword, 
         department: department || "General", 
         role: role || "STAFF",
-        telegramId: telegramId || null
+        telegramId: cleanTelegram
       }
     });
-    res.json({ message: "User created successfully with security hashing", user: newUser });
+
+    res.json({ message: "User registered successfully", user: newUser });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Login with Password Hashing Verification & Optional Telegram 2FA for Super Admin only
+// Login via Telegram Username or Email
 app.post('/api/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { loginKey, password } = req.body;
+    const cleanKey = loginKey.replace('@', '').trim().toLowerCase();
+
+    // Search by Telegram Username, Email, or Name
     let user = await prisma.user.findFirst({
-      where: { OR: [{ email: email }, { name: email }] }
+      where: {
+        OR: [
+          { telegramId: { equals: cleanKey, mode: 'insensitive' } },
+          { email: { equals: cleanKey, mode: 'insensitive' } },
+          { name: { equals: cleanKey, mode: 'insensitive' } }
+        ]
+      }
     });
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid credentials" });
+      return res.status(401).json({ error: "Invalid credentials. User not found." });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch && password !== user.password) { // Fallback for old plain-text users
-      return res.status(401).json({ error: "Invalid credentials" });
+    if (!isMatch && password !== user.password) {
+      return res.status(401).json({ error: "Invalid credentials. Wrong password." });
     }
 
-    // Principle of Least Privilege & Time-Bound Access Revocation check
+    // Access Expiry Check
     if (user.accessExpiry && new Date(user.accessExpiry) < new Date()) {
       await prisma.user.update({
         where: { id: user.id },
@@ -147,60 +163,57 @@ app.post('/api/login', async (req, res) => {
       user.role = 'STAFF';
     }
 
-    // MFA / 2FA Enforcement ONLY for SUPER_ADMIN role if Telegram is linked
-    if (user.role === 'SUPER_ADMIN' && user.telegramId) {
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiry = new Date(Date.now() + 5 * 60 * 1000); // Valid for 5 minutes
+    // Attempt Telegram OTP Sending
+    let chatId = await getChatIdFromUsername(user.telegramId);
 
-      // Save OTP to Database
+    if (chatId) {
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiry = new Date(Date.now() + 5 * 60 * 1000);
+
       await prisma.user.update({
         where: { id: user.id },
         data: { otp: code, otpExpiry: expiry }
       });
 
-      // Send via Telegram Bot
-      const sent = await sendTelegramOTP(user.telegramId, code);
+      const sent = await sendTelegramOTP(chatId, code);
       if (sent) {
-        console.log(`[TELEGRAM 2FA] Code sent to Super Admin (Chat ID: ${user.telegramId})`);
-        return res.json({ requiresMfa: true, email: user.email, message: "2FA Code sent to your Telegram!" });
+        return res.json({ requiresMfa: true, userId: user.id, telegramId: user.telegramId, message: `OTP sent to Telegram @${user.telegramId}` });
       }
     }
 
-    // Normal users and regular admins can login directly without blocking MFA
+    // Direct Login fallback if Telegram Chat ID is not detected yet
     res.json({ message: "Login successful", user });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Telegram 2FA / MFA Verification Endpoint
+// Verify Telegram OTP
 app.post('/api/verify-mfa', async (req, res) => {
   try {
-    const { email, code } = req.body;
-    const user = await prisma.user.findUnique({ where: { email } });
+    const { userId, code } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
 
     if (!user) {
-      return res.status(400).json({ error: "User not found" });
+      return res.status(400).json({ error: "User not found." });
     }
 
-    // Validate OTP and Expiry
     if (!user.otp || user.otp !== code || (user.otpExpiry && new Date() > new Date(user.otpExpiry))) {
-      return res.status(400).json({ error: "Invalid or expired 2FA verification code" });
+      return res.status(400).json({ error: "Invalid or expired OTP code." });
     }
 
-    // Clear OTP after successful validation
     await prisma.user.update({
-      where: { email },
+      where: { id: user.id },
       data: { otp: null, otpExpiry: null }
     });
 
-    res.json({ message: "MFA Authentication Successful", user });
+    res.json({ message: "Authentication successful", user });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Fetch Users (Principle of Least Privilege Scope)
+// Get all users
 app.get('/api/users', async (req, res) => {
   try {
     const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
@@ -210,7 +223,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// Temporary / Time-Bound Elevated Access Assignment
+// Update User
 app.patch('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -221,17 +234,18 @@ app.patch('/api/users/:id', async (req, res) => {
       data: { 
         role, 
         department,
-        ...(telegramId !== undefined && { telegramId }),
+        ...(telegramId && { telegramId: telegramId.replace('@', '').trim() }),
         ...(accessExpiry && { accessExpiry: new Date(accessExpiry) })
       }
     });
 
-    res.json({ message: "Role and Access Bounds updated successfully", user: updatedUser });
+    res.json({ message: "User updated successfully", user: updatedUser });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
+// Delete User
 app.delete('/api/users/:id', async (req, res) => {
   try {
     await prisma.user.delete({ where: { id: Number(req.params.id) } });
@@ -241,7 +255,7 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// Submit Request with Manager and IT Dual Approval Stage logic
+// Requests API
 app.post('/api/requests', upload.single('attachment'), async (req, res) => {
   try {
     const { title, description, category, userId, targetDepartment, extraFields, isDirectExecutive, requiresItApproval } = req.body;
@@ -251,7 +265,7 @@ app.post('/api/requests', upload.single('attachment'), async (req, res) => {
     if (isDirectExecutive === 'true' || isDirectExecutive === true) {
       initialStage = "EXECUTIVE";
     } else if (targetDepartment === 'IT' || requiresItApproval === 'true' || category === 'Maintenance') {
-      initialStage = "MANAGER_AND_IT_DUAL"; // Dual Approval Triggered
+      initialStage = "MANAGER_AND_IT_DUAL";
     }
 
     const newRequest = await prisma.request.create({
@@ -297,7 +311,6 @@ app.get('/api/requests', async (req, res) => {
   }
 });
 
-// Approval Engine: Segregation of Duties (SoD) & Dual Approval Validation
 app.patch('/api/requests/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
@@ -310,7 +323,6 @@ app.patch('/api/requests/:id/status', async (req, res) => {
 
     if (!request) return res.status(404).json({ error: "Request not found" });
 
-    // Segregation of Duties (SoD) Enforcement: User cannot approve their own request
     if (request.userId === Number(userId)) {
       return res.status(403).json({ error: "SoD Restriction: You cannot approve/reject your own request." });
     }
@@ -323,7 +335,7 @@ app.patch('/api/requests/:id/status', async (req, res) => {
       nextStage = 'REJECTED';
     } else if (status === 'APPROVED') {
       if (request.approvalStage === 'MANAGER_AND_IT_DUAL') {
-        nextStage = 'IT_MGR_PENDING'; // Transitioning stage 1 of dual approval
+        nextStage = 'IT_MGR_PENDING';
       } else if (request.approvalStage === 'IT_MGR_PENDING') {
         nextStage = 'COMPLETED';
         finalStatus = 'APPROVED';
@@ -356,7 +368,7 @@ app.patch('/api/requests/:id/status', async (req, res) => {
       });
     }
 
-    res.json({ message: "Approval workflow updated with SoD & Dual approval controls", request: updatedRequest });
+    res.json({ message: "Approval status updated", request: updatedRequest });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -384,9 +396,7 @@ app.get('/api/export/requests', async (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', async () => {
   try {
-    if (typeof initSuperAdmin === 'function') {
-      await initSuperAdmin();
-    }
+    await initSuperAdmin();
   } catch (err) {
     console.error("Auto Admin Init Error:", err);
   }

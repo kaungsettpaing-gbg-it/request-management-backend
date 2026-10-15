@@ -3,811 +3,471 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise Request Management System - Cloud Security Edition</title>
+    <title>Enterprise Request Management System</title>
     <style>
         :root {
-            --bg-main: #0f172a;
-            --card-bg: #1e293b;
-            --primary: #6366f1;
-            --primary-hover: #4f46e5;
-            --text-dark: #f8fafc;
-            --text-muted: #94a3b8;
-            --border-color: #334155;
-            --success: #22c55e;
-            --danger: #ef4444;
-            --warning: #f59e0b;
+            --primary: #1e293b;
+            --accent: #2563eb;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #0f172a;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --warning: #d97706;
         }
 
-        body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 20px; background: var(--bg-main); color: var(--text-dark); }
-        .container { max-width: 1100px; background: var(--card-bg); padding: 35px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); margin: 20px auto; border: 1px solid var(--border-color); }
-        .header-title { color: var(--text-dark); font-size: 26px; font-weight: 700; margin-bottom: 25px; border-bottom: 2px solid var(--border-color); padding-bottom: 15px; }
-        
-        h3 { border-bottom: 1px solid var(--border-color); padding-bottom: 10px; color: var(--text-dark); margin-top: 0; font-size: 18px; }
-        input, select, textarea { width: 100%; padding: 12px; margin: 8px 0 16px 0; border: 1px solid var(--border-color); border-radius: 8px; box-sizing: border-box; font-size: 14px; background: #0f172a; color: #fff; }
-        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
-        
-        button { background: var(--primary); color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 8px; font-weight: 600; font-size: 14px; transition: background 0.2s; }
-        button:hover { background: var(--primary-hover); }
-        
-        .card { background: #1e293b; padding: 25px; border-radius: 12px; margin-bottom: 25px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-
-        .auth-wrapper { max-width: 440px; margin: 50px auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 16px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); overflow: hidden; }
-        .auth-tabs { display: flex; background: #0f172a; border-bottom: 1px solid var(--border-color); }
-        .auth-tab-btn { flex: 1; padding: 16px; text-align: center; background: transparent; color: var(--text-muted); border: none; font-weight: 600; cursor: pointer; }
-        .auth-tab-btn.active { background: #1e293b; color: var(--primary); border-bottom: 3px solid var(--primary); }
-        .auth-content { padding: 30px; }
-
-        .req-tabs-container { display: flex; gap: 8px; background: #0f172a; padding: 6px; border-radius: 10px; margin-bottom: 20px; border: 1px solid var(--border-color); }
-        .req-tab-btn { flex: 1; padding: 12px; text-align: center; background: transparent; color: var(--text-muted); border: none; font-weight: 600; cursor: pointer; border-radius: 8px; transition: all 0.2s; }
-        .req-tab-btn.active { background: var(--primary); color: #ffffff; box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
-
-        .stats-container { display: flex; gap: 15px; margin-bottom: 25px; }
-        .stat-card { flex: 1; background: #0f172a; padding: 20px; border-radius: 10px; border: 1px solid var(--border-color); border-left: 5px solid var(--primary); text-align: center; }
-        .stat-card.pending { border-left-color: var(--warning); }
-        .stat-card.approved { border-left-color: var(--success); }
-        .stat-card.rejected { border-left-color: var(--danger); }
-        .stat-number { font-size: 28px; font-weight: bold; margin-top: 8px; color: #fff; }
-
-        .request-item { background: #0f172a; padding: 20px; margin-top: 15px; border-radius: 10px; border: 1px solid var(--border-color); border-left: 5px solid var(--primary); display: flex; flex-direction: column; gap: 12px; }
-        .request-header { display: flex; justify-content: space-between; align-items: flex-start; }
-
-        .status-PENDING { color: var(--warning); font-weight: bold; }
-        .status-APPROVED { color: var(--success); font-weight: bold; }
-        .status-REJECTED { color: var(--danger); font-weight: bold; }
-        .btn-approve { background: var(--success); margin-right: 8px; }
-        .btn-reject { background: var(--danger); }
-
-        .executive-tag { background: #d97706; color: white; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: bold; }
-        .super-admin-tag { background: #9333ea; color: white; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: bold; }
-        
-        .filter-bar { display: flex; gap: 15px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
-        .filter-bar input, .filter-bar select { margin: 0; flex: 1; min-width: 160px; }
-
-        .dynamic-fields { background: #0f172a; padding: 15px; border-radius: 8px; margin-bottom: 16px; border: 1px dashed var(--border-color); }
-        .timestamp { font-size: 12px; color: var(--text-muted); font-weight: 600; }
-        .stage-badge { background: #312e81; color: #818cf8; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; }
-
-        .audit-history-box { background: #0f172a; padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 12px; border-left: 3px solid var(--primary); }
-        .audit-entry { margin-top: 6px; color: var(--text-muted); }
-
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border-color); }
-        th { color: var(--text-muted); background: #0f172a; }
-
-        .mfa-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .mfa-card { background: #1e293b; padding: 30px; border-radius: 12px; width: 350px; border: 1px solid var(--primary); text-align: center; }
-
-        @media print {
-            body { background: #ffffff; color: #000000; padding: 0; }
-            .container { box-shadow: none; border: none; padding: 0; max-width: 100%; background: #fff; }
-            #authSection, #requestFormCard, .filter-bar, .req-tabs-container, button, .stats-container, #sessionBar, #exportDropdownContainer { display: none !important; }
-            .request-item { background: #fff; border: 1px solid #ccc; color: #000; box-shadow: none; break-inside: avoid; }
-            .audit-history-box { background: #f8fafc; border-left: 3px solid #000; color: #333; }
-            .header-title { color: #000; border-bottom: 2px solid #000; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
         }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--primary);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: #e2e8f0;
+            cursor: pointer;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        .tab-btn.active {
+            background: var(--accent);
+            color: white;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        input, select, textarea {
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        button {
+            padding: 10px 15px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th {
+            background: #f1f5f9;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .badge-pending { background: #fef3c7; color: var(--warning); }
+        .badge-approved { background: #dcfce7; color: var(--success); }
+        .badge-rejected { background: #fee2e2; color: var(--danger); }
+
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header-title">🏢 Enterprise Request System (Security & Compliance Edition)</div>
-        
-        <div id="sessionBar" class="card" style="background: #0f172a; display: none;">
-            <strong>User:</strong> <span id="sessName"></span> | 
-            <strong>Dept:</strong> <span id="sessDept"></span> | 
-            <strong>Role:</strong> <span id="sessRole" style="color: #818cf8;"></span>
-            <span id="superTag" class="super-admin-tag" style="display:none; margin-left:10px;">SUPER ADMIN</span>
-            <span id="execTag" class="executive-tag" style="display:none; margin-left:10px;">EXECUTIVE LEVEL</span>
-            <button onclick="logout()" style="float: right; padding: 6px 14px; background: var(--danger); font-size: 12px;">Logout</button>
-        </div>
 
-        <div id="mfaModal" class="mfa-modal" style="display: none;">
-            <div class="mfa-card">
-                <h3>🔐 MFA Verification Required</h3>
-                <p style="font-size: 12px; color: var(--text-muted);">Please check Server Terminal for 6-Digit Verification Code.</p>
-                <input type="text" id="mfaCodeInput" placeholder="Enter 6-Digit Code" style="text-align: center; font-size: 18px; letter-spacing: 4px;">
-                <button onclick="submitMfaCode()" style="width: 100%; margin-top: 10px;">Verify & Access System</button>
-            </div>
-        </div>
-
-        <div id="authSection">
-            <div class="auth-wrapper">
-                <div class="auth-tabs">
-                    <button id="tabLoginBtn" class="auth-tab-btn active" type="button" onclick="switchAuthTab('login')">Login</button>
-                    <button id="tabRegisterBtn" class="auth-tab-btn" type="button" onclick="switchAuthTab('register')">Register</button>
-                </div>
-
-                <div class="auth-content">
-                    <div id="loginTabContent">
-                        <h3 style="border:none; padding:0; margin-bottom:20px;">Secure Account Login</h3>
-                        <form id="loginForm">
-                            <label><small>Email or Username:</small></label>
-                            <input type="text" id="loginEmail" placeholder="kaungsettpaing@admin.com" required>
-                            <label><small>Password:</small></label>
-                            <input type="password" id="loginPassword" placeholder="Password" required>
-                            <button type="submit" style="width: 100%; margin-top: 15px;">Sign In</button>
-                        </form>
-                    </div>
-
-                    <div id="registerTabContent" style="display: none;">
-                        <h3 style="border:none; padding:0; margin-bottom:20px;">Register New User</h3>
-                        <form id="userForm">
-                            <input type="text" id="regName" placeholder="Full Name" required>
-                            <input type="email" id="regEmail" placeholder="Email" required>
-                            <input type="password" id="regPassword" placeholder="Password" required>
-                            
-                            <label><small>Your Department:</small></label>
-                            <select id="regDept">
-                                <option value="HR">HR</option>
-                                <option value="Finance">Finance</option>
-                                <option value="IT">IT & Infrastructure</option>
-                                <option value="Cashier">Cashier</option>
-                                <option value="Sales & Marketing">Sales & Marketing</option>
-                                <option value="Warehouse">Warehouse</option>
-                                <option value="Production">Production</option>
-                                <option value="Admin">Admin</option>
-                                <option value="Executive Management">Executive Management</option>
-                            </select>
-
-                            <label><small>Role Position (Principle of Least Privilege):</small></label>
-                            <select id="regRole">
-                                <option value="STAFF">Staff (Employee)</option>
-                                <option value="ASSISTANT">Assistant / Supervisor</option>
-                                <option value="MANAGER">Department Manager</option>
-                                <option value="DGM">Deputy General Manager (DGM)</option>
-                                <option value="GM">General Manager (GM)</option>
-                                <option value="ADMIN">Administrator</option>
-                            </select>
-                            <button type="submit" style="width: 100%; background: var(--success); margin-top: 15px;">Create Account</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div id="dashboardSection" style="display: none;">
-            <div class="stats-container">
-                <div class="stat-card">
-                    <div>Total Requests</div>
-                    <div class="stat-number" id="statTotal">0</div>
-                </div>
-                <div class="stat-card pending">
-                    <div>Pending</div>
-                    <div class="stat-number" id="statPending">0</div>
-                </div>
-                <div class="stat-card approved">
-                    <div>Approved</div>
-                    <div class="stat-number" id="statApproved">0</div>
-                </div>
-                <div class="stat-card rejected">
-                    <div>Rejected</div>
-                    <div class="stat-number" id="statRejected">0</div>
-                </div>
-            </div>
-
-            <div class="card" id="userManagementCard" style="display: none; border-left: 5px solid #9333ea;">
-                <h3>👥 PoLP & Temporary Time-Bound Access Elevation</h3>
-                <div style="overflow-x: auto;">
-                    <table id="userTable">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Department</th>
-                                <th>Role Scope</th>
-                                <th>Temporary Access Bound</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="userTableBody"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="card" id="requestFormCard">
-                <h3>Submit New Request</h3>
-                <form id="requestForm" enctype="multipart/form-data">
-                    <input type="text" id="title" name="title" placeholder="Request Title / Purpose" required>
-                    
-                    <div id="targetDeptContainer">
-                        <label><small>Select Target Department for Approval:</small></label>
-                        <select id="targetDepartment" name="targetDepartment">
-                            <option value="HR">HR Department</option>
-                            <option value="Finance">Finance Department</option>
-                            <option value="IT">IT & Infrastructure</option>
-                            <option value="Admin">Admin Department</option>
-                            <option value="Warehouse">Warehouse Department</option>
-                            <option value="General">General / Internal</option>
-                        </select>
-                    </div>
-
-                    <div style="margin: 10px 0; background: rgba(245,158,11,0.1); border: 1px solid var(--warning); padding: 12px; border-radius: 8px;">
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; color: var(--warning); margin: 0;">
-                            <input type="checkbox" id="isDirectExecutive" style="width: auto; margin: 0;"> 
-                            ⚠️ High-Value Case (Requires GM/DGM Approval)
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; color: #818cf8; margin-top: 8px;">
-                            <input type="checkbox" id="requiresItApproval" style="width: auto; margin: 0;"> 
-                            💻 Requires Manager + IT Dual Approval (Manager & IT Dual Workflow)
-                        </label>
-                    </div>
-
-                    <label><small>Select Request Type / Category:</small></label>
-                    <select id="category" name="category" onchange="renderDynamicFields()">
-                        <option value="CAR_REQUEST">🚗 Car Request (ကားတောင်းခံလွှာ)</option>
-                        <option value="GATE_PASS">🎫 Gate Pass (ဂိတ်ဝင်ထွက်ခွင့်)</option>
-                        <option value="Purchase">Purchase / Procurement</option>
-                        <option value="Leave">Leave Request</option>
-                        <option value="Maintenance">Maintenance / Repair</option>
-                        <option value="Finance">Financial / Budget</option>
-                        <option value="General">General / Other</option>
-                    </select>
-
-                    <div id="dynamicFieldsContainer" class="dynamic-fields"></div>
-
-                    <textarea id="description" name="description" placeholder="Additional Notes / Description..."></textarea>
-                    
-                    <label><small>Attach File / Receipt / Image (Optional):</small></label>
-                    <input type="file" id="attachment" name="attachment" accept="image/*,.pdf,.doc,.docx">
-
-                    <button type="submit">Submit Request</button>
-                </form>
-            </div>
-
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 30px;">
-                <h3 style="margin: 0; border: none;">System Requests Overview</h3>
-                <div id="exportDropdownContainer" style="display: none;">
-                    <select id="exportActionSelect" onchange="handleExportAction(this)" style="margin: 0; padding: 10px 14px; background: #0284c7; color: white; font-weight: 600; border-radius: 8px; cursor: pointer; border: none;">
-                        <option value="" disabled selected>📥 Export / Print Options ▼</option>
-                        <option value="csv">📊 Export as Audit CSV</option>
-                        <option value="pdf">🖨️ Save as PDF / Print</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="req-tabs-container" style="margin-top: 15px;">
-                <button id="tabReq_PENDING" class="req-tab-btn active" type="button" onclick="switchRequestTab('PENDING')">⏳ Pending / In-Progress</button>
-                <button id="tabReq_APPROVED" class="req-tab-btn" type="button" onclick="switchRequestTab('APPROVED')">✅ Approved / Completed</button>
-                <button id="tabReq_REJECTED" class="req-tab-btn" type="button" onclick="switchRequestTab('REJECTED')">❌ Rejected</button>
-            </div>
-
-            <div class="filter-bar">
-                <input type="text" id="searchKeyword" placeholder="Search keyword..." oninput="filterRequests()">
-                <select id="filterCategory" onchange="filterRequests()">
-                    <option value="">All Categories</option>
-                    <option value="CAR_REQUEST">Car Request</option>
-                    <option value="GATE_PASS">Gate Pass</option>
-                    <option value="Purchase">Purchase</option>
-                    <option value="Leave">Leave</option>
-                    <option value="Maintenance">Maintenance</option>
-                    <option value="Finance">Finance</option>
-                    <option value="General">General</option>
-                </select>
-            </div>
-
-            <div id="requestList" style="margin-top: 15px;">Loading...</div>
-        </div>
+<div class="container">
+    <div class="header">
+        <h2>GBG Request Management System</h2>
+        <div id="userInfo">Not Logged In</div>
     </div>
 
-    <script>
-        let currentUser = null;
-        let pendingMfaEmail = null;
-        let allRequests = [];
-        let allUsers = [];
-        let currentRequestTab = 'PENDING';
+    <!-- Login Box -->
+    <div id="loginSection" class="card">
+        <h3>Login with Telegram Username</h3>
+        <form id="loginForm">
+            <input type="text" id="loginKey" placeholder="Telegram Username (e.g. @okeydokey2)" required>
+            <input type="password" id="loginPassword" placeholder="Password" required>
+            <button type="submit">Login</button>
+        </form>
+    </div>
 
-        function switchAuthTab(tab) {
-            const loginContent = document.getElementById('loginTabContent');
-            const registerContent = document.getElementById('registerTabContent');
-            const loginBtn = document.getElementById('tabLoginBtn');
-            const registerBtn = document.getElementById('tabRegisterBtn');
+    <!-- MFA Box -->
+    <div id="mfaSection" class="card hidden">
+        <h3>Telegram 2FA Verification</h3>
+        <p>Enter the 6-digit verification code sent to your Telegram Bot.</p>
+        <form id="mfaForm">
+            <input type="text" id="mfaCode" placeholder="6-digit OTP Code" required>
+            <button type="submit">Verify & Login</button>
+        </form>
+    </div>
 
-            if (tab === 'login') {
-                if (loginContent) loginContent.style.display = 'block';
-                if (registerContent) registerContent.style.display = 'none';
-                if (loginBtn) loginBtn.classList.add('active');
-                if (registerBtn) registerBtn.classList.remove('active');
-            } else {
-                if (loginContent) loginContent.style.display = 'none';
-                if (registerContent) registerContent.style.display = 'block';
-                if (registerBtn) registerBtn.classList.add('active');
-                if (loginBtn) loginBtn.classList.remove('active');
-            }
-        }
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="hidden">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('newRequest')">New Request</button>
+            <button class="tab-btn" onclick="switchTab('requestList')">Request History</button>
+            <button id="userMgmtTab" class="tab-btn hidden" onclick="switchTab('userMgmt')">User Management (PoLP)</button>
+        </div>
 
-        function switchRequestTab(status) {
-            currentRequestTab = status;
-            document.querySelectorAll('.req-tab-btn').forEach(btn => btn.classList.remove('active'));
-            const activeBtn = document.getElementById('tabReq_' + status);
-            if (activeBtn) activeBtn.classList.add('active');
-            filterRequests();
-        }
-
-        function renderDynamicFields() {
-            const catEl = document.getElementById('category');
-            if (!catEl) return;
-            const cat = catEl.value;
-            const container = document.getElementById('dynamicFieldsContainer');
-            if (!container) return;
-            container.innerHTML = '';
-
-            if (cat === 'CAR_REQUEST') {
-                container.innerHTML = '<label><small>Departure Date & Time:</small></label>' +
-                    '<input type="datetime-local" id="dyn_departureTime" required>' +
-                    '<label><small>Return Date & Time:</small></label>' +
-                    '<input type="datetime-local" id="dyn_returnTime" required>' +
-                    '<label><small>Number of Passengers:</small></label>' +
-                    '<input type="number" id="dyn_passengers" min="1" value="1" required>';
-            } else if (cat === 'GATE_PASS') {
-                container.innerHTML = '<label><small>Departure Date & Time:</small></label>' +
-                    '<input type="datetime-local" id="dyn_departureTime" required>' +
-                    '<label><small>Return Date & Time:</small></label>' +
-                    '<input type="datetime-local" id="dyn_returnTime" required>' +
-                    '<label><small>Item / Vehicle Details (e.g. Laptops, Plate No.):</small></label>' +
-                    '<textarea id="dyn_itemDetails" rows="2" placeholder="Enter items or vehicle info..." required></textarea>';
-            } else if (cat === 'Purchase') {
-                container.innerHTML = '<label><small>Estimated Amount ($ / MMK):</small></label>' +
-                    '<input type="number" id="dyn_amount" placeholder="e.g. 500000 or 1000000" required>' +
-                    '<label><small>Quantity / Items:</small></label>' +
-                    '<input type="text" id="dyn_quantity" placeholder="e.g. 2 Laptops" required>';
-            } else if (cat === 'Leave') {
-                container.innerHTML = '<label><small>Leave Type:</small></label>' +
-                    '<select id="dyn_leaveType">' +
-                        '<option value="Casual">Casual Leave</option>' +
-                        '<option value="Medical">Medical Leave</option>' +
-                        '<option value="Annual">Annual Leave</option>' +
-                    '</select>' +
-                    '<label><small>Number of Days:</small></label>' +
-                    '<input type="number" id="dyn_days" placeholder="e.g. 3" required>';
-            } else if (cat === 'Maintenance') {
-                container.innerHTML = '<label><small>Equipment / Location:</small></label>' +
-                    '<input type="text" id="dyn_location" placeholder="e.g. Server Room AC" required>' +
-                    '<label><small>Urgency Level:</small></label>' +
-                    '<select id="dyn_urgency">' +
-                        '<option value="Low">Low</option>' +
-                        '<option value="Medium">Medium</option>' +
-                        '<option value="High/Critical">High / Critical</option>' +
-                    '</select>';
-            } else {
-                container.innerHTML = '<small style="color:#94a3b8;">No additional fields required for this category.</small>';
-            }
-        }
-
-        function updateUI() {
-            if (currentUser) {
-                document.getElementById('authSection').style.display = 'none';
-                document.getElementById('sessionBar').style.display = 'block';
-                document.getElementById('dashboardSection').style.display = 'block';
+        <!-- Submit Request Tab -->
+        <div id="newRequest" class="tab-content card">
+            <h3>Submit Request</h3>
+            <form id="requestForm">
+                <input type="text" id="reqTitle" placeholder="Request Title" required>
                 
-                document.getElementById('sessName').innerText = currentUser.name || 'User';
-                document.getElementById('sessDept').innerText = currentUser.department || 'N/A';
-                document.getElementById('sessRole').innerText = currentUser.role || 'STAFF';
+                <label><small>Category:</small></label>
+                <select id="reqCategory" onchange="handleCategoryChange()">
+                    <option value="Car Request">Car Request</option>
+                    <option value="Gate Pass">Gate Pass</option>
+                    <option value="Purchase">Purchase Request</option>
+                    <option value="General">General Request</option>
+                </select>
 
-                const targetDeptContainer = document.getElementById('targetDeptContainer');
-                if (currentUser.role === 'STAFF') {
-                    if (targetDeptContainer) targetDeptContainer.style.display = 'none';
-                } else {
-                    if (targetDeptContainer) targetDeptContainer.style.display = 'block';
-                }
+                <!-- Dynamic Form Fields -->
+                <div id="dynamicFields"></div>
 
-                if (['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)) {
-                    document.getElementById('superTag').style.display = 'inline-block';
-                    document.getElementById('execTag').style.display = 'none';
-                    document.getElementById('requestFormCard').style.display = 'none';
-                    document.getElementById('userManagementCard').style.display = 'block';
-                    loadUsers();
-                } else if (['GM', 'DGM'].includes(currentUser.role)) {
-                    document.getElementById('superTag').style.display = 'none';
-                    document.getElementById('execTag').style.display = 'inline-block';
-                    document.getElementById('requestFormCard').style.display = 'none';
-                    document.getElementById('userManagementCard').style.display = 'none';
-                } else {
-                    document.getElementById('superTag').style.display = 'none';
-                    document.getElementById('execTag').style.display = 'none';
-                    document.getElementById('requestFormCard').style.display = 'block';
-                    document.getElementById('userManagementCard').style.display = 'none';
-                }
+                <label><small>Target Approval Department:</small></label>
+                <select id="reqTargetDept">
+                    <option value="General">General</option>
+                    <option value="IT">IT Department</option>
+                    <option value="Admin">Admin Department</option>
+                    <option value="HR">HR Department</option>
+                    <option value="Executive Management">Executive Management</option>
+                </select>
 
-                if (['ADMIN', 'SUPER_ADMIN', 'GM', 'DGM', 'MANAGER', 'HR'].includes(currentUser.role)) {
-                    document.getElementById('exportDropdownContainer').style.display = 'block';
-                } else {
-                    document.getElementById('exportDropdownContainer').style.display = 'none';
-                }
-            } else {
-                document.getElementById('authSection').style.display = 'block';
-                document.getElementById('sessionBar').style.display = 'none';
-                document.getElementById('dashboardSection').style.display = 'none';
-            }
-        }
+                <textarea id="reqDesc" placeholder="Description / Justification" rows="3"></textarea>
+                <button type="submit">Submit Request</button>
+            </form>
+        </div>
 
-        function logout() {
-            currentUser = null;
-            updateUI();
-        }
+        <!-- Request List Tab -->
+        <div id="requestList" class="tab-content card hidden">
+            <h3>Request Records & Approvals</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Category</th>
+                        <th>Submitted By</th>
+                        <th>Stage</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="requestTableBody"></tbody>
+            </table>
+        </div>
 
-        function handleExportAction(selectEl) {
-            const val = selectEl.value;
-            if (val === 'csv') {
-                window.location.href = '/api/export/requests';
-            } else if (val === 'pdf') {
-                window.print();
-            }
-            selectEl.value = "";
-        }
-
-        async function submitMfaCode() {
-            const code = document.getElementById('mfaCodeInput').value.trim();
-            try {
-                const res = await fetch('/api/verify-mfa', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: pendingMfaEmail, code })
-                });
-                const data = await res.json();
-                if (res.ok && data.user) {
-                    document.getElementById('mfaModal').style.display = 'none';
-                    currentUser = data.user;
-                    updateUI();
-                    renderDynamicFields();
-                    loadRequests();
-                } else {
-                    alert("MFA Error: " + (data.error || "Invalid verification code"));
-                }
-            } catch(err) {
-                alert("Verification error: " + err.message);
-            }
-        }
-
-        async function loadUsers() {
-            try {
-                const res = await fetch('/api/users');
-                allUsers = await res.json();
-                renderUserTable();
-            } catch(err) {
-                console.error("Load users error:", err);
-            }
-        }
-
-        function renderUserTable() {
-            const tbody = document.getElementById('userTableBody');
-            if (!tbody) return;
-            tbody.innerHTML = '';
-
-            allUsers.forEach(u => {
-                const expiryVal = u.accessExpiry ? new Date(u.accessExpiry).toISOString().slice(0,10) : '';
-                tbody.innerHTML += `<tr>
-                    <td><b>${u.name}</b></td>
-                    <td>${u.email}</td>
-                    <td>
-                        <select onchange="updateUserRoleDept(${u.id}, this.value, '${u.role}')">
-                            <option value="HR" ${u.department==='HR'?'selected':''}>HR</option>
-                            <option value="Finance" ${u.department==='Finance'?'selected':''}>Finance</option>
-                            <option value="IT" ${u.department==='IT'?'selected':''}>IT</option>
-                            <option value="Sales & Marketing" ${u.department==='Sales & Marketing'?'selected':''}>Sales & Marketing</option>
-                            <option value="Warehouse" ${u.department==='Warehouse'?'selected':''}>Warehouse</option>
-                            <option value="Production" ${u.department==='Production'?'selected':''}>Production</option>
-                            <option value="Admin" ${u.department==='Admin'?'selected':''}>Admin</option>
-                        </select>
-                    </td>
-                    <td>
-                        <select onchange="updateUserRoleDept(${u.id}, '${u.department}', this.value)">
-                            <option value="STAFF" ${u.role==='STAFF'?'selected':''}>STAFF</option>
-                            <option value="ASSISTANT" ${u.role==='ASSISTANT'?'selected':''}>ASSISTANT</option>
-                            <option value="MANAGER" ${u.role==='MANAGER'?'selected':''}>MANAGER</option>
-                            <option value="DGM" ${u.role==='DGM'?'selected':''}>DGM</option>
-                            <option value="GM" ${u.role==='GM'?'selected':''}>GM</option>
-                            <option value="ADMIN" ${u.role==='ADMIN'?'selected':''}>ADMIN</option>
-                        </select>
-                    </td>
-                    <td>
-                        <input type="date" value="${expiryVal}" onchange="setTemporaryAccess(${u.id}, this.value)" style="margin:0; padding:6px; font-size:12px;">
-                    </td>
-                    <td>
-                        <button type="button" onclick="deleteUser(${u.id})" style="background: var(--danger); padding: 6px 12px; font-size: 12px;">Delete</button>
-                    </td>
-                </tr>`;
-            });
-        }
-
-        async function updateUserRoleDept(id, dept, role) {
-            try {
-                const res = await fetch('/api/users/' + id, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ department: dept, role: role })
-                });
-                if (res.ok) {
-                    alert("User Role & Department Updated!");
-                    loadUsers();
-                }
-            } catch(err) {
-                alert("Error: " + err.message);
-            }
-        }
-
-        async function setTemporaryAccess(id, expiryDate) {
-            try {
-                const res = await fetch('/api/users/' + id, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ accessExpiry: expiryDate })
-                });
-                if (res.ok) {
-                    alert("Temporary Time-Bound Access Bounds Applied!");
-                }
-            } catch(err) {
-                alert("Error: " + err.message);
-            }
-        }
-
-        async function deleteUser(id) {
-            if (!confirm("Are you sure you want to delete this user?")) return;
-            try {
-                const res = await fetch('/api/users/' + id, { method: 'DELETE' });
-                if (res.ok) loadUsers();
-            } catch(err) {
-                alert("Error: " + err.message);
-            }
-        }
-
-        async function loadRequests() {
-            try {
-                const res = await fetch('/api/requests');
-                allRequests = await res.json();
-                allRequests.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-                updateAnalytics(allRequests);
-                filterRequests();
-            } catch(err) {
-                console.error(err);
-            }
-        }
-
-        function updateAnalytics(requests) {
-            if (!Array.isArray(requests)) return;
-            document.getElementById('statTotal').innerText = requests.length;
-            document.getElementById('statPending').innerText = requests.filter(r => r.status === 'PENDING').length;
-            document.getElementById('statApproved').innerText = requests.filter(r => r.status === 'APPROVED').length;
-            document.getElementById('statRejected').innerText = requests.filter(r => r.status === 'REJECTED').length;
-        }
-
-        function filterRequests() {
-            if (!Array.isArray(allRequests)) return;
-            const keyword = (document.getElementById('searchKeyword')?.value || '').toLowerCase();
-            const categoryFilter = document.getElementById('filterCategory')?.value || '';
-
-            const filtered = allRequests.filter(req => {
-                if (currentRequestTab === 'PENDING' && req.status !== 'PENDING') return false;
-                if (currentRequestTab === 'APPROVED' && req.status !== 'APPROVED') return false;
-                if (currentRequestTab === 'REJECTED' && req.status !== 'REJECTED') return false;
-
-                let isVisible = true;
-                const originDept = req.user ? req.user.department : '';
-
-                if (['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)) {
-                    isVisible = true;
-                } else if (currentUser.role === 'STAFF') {
-                    isVisible = req.userId === currentUser.id;
-                } else if (['MANAGER', 'ASSISTANT'].includes(currentUser.role)) {
-                    if (req.approvalStage === 'ORIGIN_MGR' || req.approvalStage === 'MANAGER_AND_IT_DUAL') {
-                        isVisible = originDept === currentUser.department || req.userId === currentUser.id;
-                    } else if (req.approvalStage === 'IT_MGR_PENDING') {
-                        isVisible = currentUser.department === 'IT' || originDept === currentUser.department;
-                    } else if (req.approvalStage === 'TARGET_MGR') {
-                        isVisible = req.targetDepartment === currentUser.department || originDept === currentUser.department;
-                    } else {
-                        isVisible = true;
-                    }
-                }
-
-                const matchKeyword = (req.title || '').toLowerCase().includes(keyword) || 
-                                     (req.description && req.description.toLowerCase().includes(keyword));
-                const matchCategory = categoryFilter === "" || req.category === categoryFilter;
-
-                return isVisible && matchKeyword && matchCategory;
-            });
-
-            filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-            renderRequests(filtered);
-        }
-
-        function renderRequests(requests) {
-            const listDiv = document.getElementById('requestList');
-            if (!listDiv) return;
-            listDiv.innerHTML = '';
+        <!-- User Management Tab -->
+        <div id="userMgmt" class="tab-content card hidden">
+            <h3>PoLP & Temporary Access Elevation</h3>
             
-            if (!Array.isArray(requests) || requests.length === 0) {
-                listDiv.innerHTML = `<p style="color: var(--text-muted); padding: 25px; text-align: center; background: #0f172a; border-radius: 8px; border: 1px solid var(--border-color);">No <b>${currentRequestTab}</b> requests found.</p>`;
-                return;
-            }
+            <h4>Create New User</h4>
+            <form id="createUserForm">
+                <input type="text" id="regName" placeholder="Full Name" required>
+                <input type="text" id="regTelegram" placeholder="Telegram Username (e.g. @john_doe)" required>
+                <input type="password" id="regPassword" placeholder="Password" required>
+                <select id="regDept">
+                    <option value="HR">HR</option>
+                    <option value="Finance">Finance</option>
+                    <option value="IT">IT</option>
+                    <option value="Admin">Admin</option>
+                    <option value="Warehouse">Warehouse</option>
+                </select>
+                <select id="regRole">
+                    <option value="STAFF">Staff</option>
+                    <option value="MANAGER">Manager</option>
+                    <option value="ADMIN">Admin</option>
+                </select>
+                <button type="submit">Register User</button>
+            </form>
 
-            requests.forEach(req => {
-                const userName = req.user ? req.user.name : 'Unknown';
-                const userDept = req.user ? req.user.department : 'N/A';
-                const userRole = req.user ? req.user.role : 'N/A';
-                let extraStr = '';
-                try {
-                    const extra = req.extraFields ? JSON.parse(req.extraFields) : {};
-                    extraStr = Object.entries(extra).map(([k, v]) => '<b>' + k + ':</b> ' + v).join(' | ');
-                } catch(e) {}
+            <h4>Existing Users</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Telegram @</th>
+                        <th>Dept</th>
+                        <th>Role</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="userTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
 
-                let fileLink = req.attachment ? '<br><small>📎 <b>Attachment:</b> <a href="/' + req.attachment + '" target="_blank" style="color: #818cf8;">Download File</a></small>' : '';
-                const formattedDate = req.createdAt ? new Date(req.createdAt).toLocaleString() : 'N/A';
+<script>
+    let currentUser = null;
+    let pendingMfaUserId = null;
 
-                let auditHtml = '';
-                if (req.auditLogs && req.auditLogs.length > 0) {
-                    auditHtml = '<div class="audit-history-box"><strong>📜 Audit Trail Logs:</strong>';
-                    req.auditLogs.forEach(log => {
-                        const logTime = new Date(log.createdAt).toLocaleString();
-                        const actor = log.user ? `${log.user.name} (${log.user.role})` : 'System';
-                        auditHtml += `<div class="audit-entry">⏱ <b>${log.action}</b> by ${actor} on ${logTime} - <i>${log.remarks || 'No remarks'}</i></div>`;
-                    });
-                    auditHtml += '</div>';
-                }
+    // Login Form Handler
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const loginKey = document.getElementById('loginKey').value;
+        const password = document.getElementById('loginPassword').value;
 
-                let canAction = false;
-                if (req.status === 'PENDING' && currentUser) {
-                    if (req.userId !== currentUser.id) {
-                        if (['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)) {
-                            canAction = true;
-                        } else if (req.approvalStage === 'MANAGER_AND_IT_DUAL' && currentUser.role === 'MANAGER' && userDept === currentUser.department) {
-                            canAction = true;
-                        } else if (req.approvalStage === 'IT_MGR_PENDING' && currentUser.role === 'MANAGER' && currentUser.department === 'IT') {
-                            canAction = true;
-                        } else if (req.approvalStage === 'ORIGIN_MGR' && currentUser.role === 'MANAGER' && userDept === currentUser.department) {
-                            canAction = true;
-                        } else if (req.approvalStage === 'EXECUTIVE' && ['GM', 'DGM'].includes(currentUser.role)) {
-                            canAction = true;
-                        }
-                    }
-                }
-
-                let actionButtons = '';
-                if (canAction) {
-                    actionButtons = '<div>' +
-                        '<button type="button" class="btn-approve" onclick="updateStatus(' + req.id + ', \'APPROVED\')">Approve</button>' +
-                        '<button type="button" class="btn-reject" onclick="updateStatus(' + req.id + ', \'REJECTED\')">Reject</button>' +
-                    '</div>';
-                }
-
-                listDiv.innerHTML += '<div class="request-item">' +
-                    '<div class="request-header">' +
-                        '<div>' +
-                            '<strong>' + req.title + '</strong> [<b>' + req.category + '</b>] <span class="status-' + req.status + '">[' + req.status + ']</span> ' +
-                            '<span class="stage-badge">Workflow Stage: ' + req.approvalStage + '</span><br>' +
-                            '<span class="timestamp">📅 Submitted: ' + formattedDate + ' | 🎯 Target: <b>' + (req.targetDepartment || 'General') + '</b></span><br>' +
-                            '<small style="color: #cbd5e1;">' + (req.description || 'No description') + '</small><br>' +
-                            (extraStr ? '<small style="color:#818cf8;">' + extraStr + '</small><br>' : '') +
-                            fileLink + '<br>' +
-                            '<em>Submitted By: ' + userName + ' (' + userDept + ' - ' + userRole + ')</em>' +
-                        '</div>' +
-                        actionButtons +
-                    '</div>' +
-                    auditHtml +
-                '</div>';
-            });
-        }
-
-        async function updateStatus(id, status) {
-            const remarks = prompt(`Enter optional audit remarks for ${status}:`);
-            try {
-                const res = await fetch('/api/requests/' + id + '/status', {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status, userId: currentUser.id, remarks })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    loadRequests();
-                } else {
-                    alert("Action Denied: " + (data.error || "Failed to update status"));
-                }
-            } catch(err) {
-                alert("Error: " + err.message);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            renderDynamicFields();
-
-            const loginForm = document.getElementById('loginForm');
-            if (loginForm) {
-                loginForm.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    const email = document.getElementById('loginEmail').value.trim();
-                    const password = document.getElementById('loginPassword').value.trim();
-
-                    try {
-                        const res = await fetch('/api/login', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email, password })
-                        });
-                        const data = await res.json();
-                        if (res.ok) {
-                            if (data.requiresMfa) {
-                                pendingMfaEmail = data.email;
-                                document.getElementById('mfaModal').style.display = 'flex';
-                            } else if (data.user) {
-                                currentUser = data.user;
-                                updateUI();
-                                renderDynamicFields();
-                                loadRequests();
-                            }
-                        } else {
-                            alert("Login Failed: " + (data.error || "Invalid Credentials"));
-                        }
-                    } catch (err) {
-                        alert("Network Error: " + err.message);
-                    }
-                });
-            }
-
-            const requestForm = document.getElementById('requestForm');
-            if (requestForm) {
-                requestForm.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    
-                    const formData = new FormData();
-                    formData.append('title', document.getElementById('title').value);
-                    
-                    let targetDept = currentUser.department;
-                    if (currentUser.role !== 'STAFF') {
-                        targetDept = document.getElementById('targetDepartment').value;
-                    }
-                    formData.append('targetDepartment', targetDept);
-                    
-                    formData.append('isDirectExecutive', document.getElementById('isDirectExecutive')?.checked || false);
-                    formData.append('requiresItApproval', document.getElementById('requiresItApproval')?.checked || false);
-
-                    const dialogCategory = document.getElementById('category').value;
-                    formData.append('category', dialogCategory);
-                    formData.append('description', document.getElementById('description').value);
-                    formData.append('userId', currentUser.id);
-
-                    const extraFields = {};
-                    if (dialogCategory === 'CAR_REQUEST') {
-                        extraFields.departureTime = document.getElementById('dyn_departureTime')?.value;
-                        extraFields.returnTime = document.getElementById('dyn_returnTime')?.value;
-                        extraFields.passengers = document.getElementById('dyn_passengers')?.value;
-                    } else if (dialogCategory === 'GATE_PASS') {
-                        extraFields.departureTime = document.getElementById('dyn_departureTime')?.value;
-                        extraFields.returnTime = document.getElementById('dyn_returnTime')?.value;
-                        extraFields.itemDetails = document.getElementById('dyn_itemDetails')?.value;
-                    } else if (dialogCategory === 'Purchase') {
-                        extraFields.amount = document.getElementById('dyn_amount')?.value;
-                        extraFields.quantity = document.getElementById('dyn_quantity')?.value;
-                    } else if (dialogCategory === 'Leave') {
-                        extraFields.leaveType = document.getElementById('dyn_leaveType')?.value;
-                        extraFields.days = document.getElementById('dyn_days')?.value;
-                    } else if (dialogCategory === 'Maintenance') {
-                        extraFields.location = document.getElementById('dyn_location')?.value;
-                        extraFields.urgency = document.getElementById('dyn_urgency')?.value;
-                    }
-                    formData.append('extraFields', JSON.stringify(extraFields));
-
-                    const fileInput = document.getElementById('attachment');
-                    if (fileInput && fileInput.files[0]) {
-                        formData.append('attachment', fileInput.files[0]);
-                    }
-
-                    try {
-                        const res = await fetch('/api/requests', {
-                            method: 'POST',
-                            body: formData
-                        });
-                        if (res.ok) {
-                            alert("Request submitted successfully into Approval Workflow!");
-                            requestForm.reset();
-                            renderDynamicFields();
-                            loadRequests();
-                        } else {
-                            alert("Error submitting request");
-                        }
-                    } catch(err) {
-                        alert("Submit Error: " + err.message);
-                    }
-                });
-            }
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ loginKey, password })
         });
-    </script>
+        const data = await res.json();
+
+        if (res.ok) {
+            if (data.requiresMfa) {
+                pendingMfaUserId = data.userId;
+                document.getElementById('loginSection').classList.add('hidden');
+                document.getElementById('mfaSection').classList.remove('hidden');
+            } else {
+                setupUserSession(data.user);
+            }
+        } else {
+            alert(data.error);
+        }
+    });
+
+    // MFA Form Handler
+    document.getElementById('mfaForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const code = document.getElementById('mfaCode').value;
+
+        const res = await fetch('/api/verify-mfa', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: pendingMfaUserId, code })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            document.getElementById('mfaSection').classList.add('hidden');
+            setupUserSession(data.user);
+        } else {
+            alert(data.error);
+        }
+    });
+
+    function setupUserSession(user) {
+        currentUser = user;
+        document.getElementById('loginSection').classList.add('hidden');
+        document.getElementById('dashboard').classList.remove('hidden');
+        document.getElementById('userInfo').innerText = `${user.name} (@${user.telegramId || 'NoTele'}) | ${user.role}`;
+
+        if (['SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
+            document.getElementById('userMgmtTab').classList.remove('hidden');
+            loadUsers();
+        }
+        handleCategoryChange();
+        loadRequests();
+    }
+
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById(tabId).classList.remove('hidden');
+        event.target.classList.add('active');
+    }
+
+    function handleCategoryChange() {
+        const cat = document.getElementById('reqCategory').value;
+        const container = document.getElementById('dynamicFields');
+        container.innerHTML = '';
+
+        if (cat === 'Car Request') {
+            container.innerHTML = `
+                <input type="text" id="fieldDestination" placeholder="Destination" required>
+                <input type="number" id="fieldPassengers" placeholder="Number of Passengers" required>
+            `;
+        } else if (cat === 'Gate Pass') {
+            container.innerHTML = `
+                <input type="text" id="fieldItemDetails" placeholder="Item Details / Description" required>
+                <input type="text" id="fieldVehicleNo" placeholder="Vehicle License Plate No." required>
+            `;
+        }
+    }
+
+    // Submit Request
+    document.getElementById('requestForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const cat = document.getElementById('reqCategory').value;
+        let extra = {};
+
+        if (cat === 'Car Request') {
+            extra = {
+                destination: document.getElementById('fieldDestination')?.value,
+                passengers: document.getElementById('fieldPassengers')?.value
+            };
+        } else if (cat === 'Gate Pass') {
+            extra = {
+                itemDetails: document.getElementById('fieldItemDetails')?.value,
+                vehicleNo: document.getElementById('fieldVehicleNo')?.value
+            };
+        }
+
+        const payload = {
+            title: document.getElementById('reqTitle').value,
+            category: cat,
+            description: document.getElementById('reqDesc').value,
+            targetDepartment: document.getElementById('reqTargetDept').value,
+            userId: currentUser.id,
+            extraFields: JSON.stringify(extra)
+        };
+
+        const res = await fetch('/api/requests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            alert('Request submitted successfully!');
+            document.getElementById('requestForm').reset();
+            loadRequests();
+        }
+    });
+
+    async function loadRequests() {
+        const res = await fetch('/api/requests');
+        const requests = await res.json();
+        const tbody = document.getElementById('requestTableBody');
+        tbody.innerHTML = '';
+
+        requests.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>#${r.id}</td>
+                <td>${r.title}</td>
+                <td>${r.category}</td>
+                <td>${r.user ? r.user.name : 'Unknown'}</td>
+                <td>${r.approvalStage}</td>
+                <td><span class="badge badge-${r.status.toLowerCase()}">${r.status}</span></td>
+                <td>
+                    ${currentUser.role !== 'STAFF' && r.userId !== currentUser.id && r.status === 'PENDING' ? `
+                        <button onclick="updateStatus(${r.id}, 'APPROVED')" style="background:var(--success)">Approve</button>
+                        <button onclick="updateStatus(${r.id}, 'REJECTED')" style="background:var(--danger)">Reject</button>
+                    ` : '-'}
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    async function updateStatus(id, status) {
+        await fetch(`/api/requests/${id}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status, userId: currentUser.id })
+        });
+        loadRequests();
+    }
+
+    // Register New User Handler
+    document.getElementById('createUserForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const payload = {
+            name: document.getElementById('regName').value,
+            telegramUsername: document.getElementById('regTelegram').value,
+            password: document.getElementById('regPassword').value,
+            department: document.getElementById('regDept').value,
+            role: document.getElementById('regRole').value
+        };
+
+        const res = await fetch('/api/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            alert('User registered successfully!');
+            document.getElementById('createUserForm').reset();
+            loadUsers();
+        } else {
+            const err = await res.json();
+            alert(err.error);
+        }
+    });
+
+    async function loadUsers() {
+        const res = await fetch('/api/users');
+        const users = await res.json();
+        const tbody = document.getElementById('userTableBody');
+        tbody.innerHTML = '';
+
+        users.forEach(u => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${u.name}</td>
+                <td>@${u.telegramId || 'None'}</td>
+                <td>${u.department}</td>
+                <td><b>${u.role}</b></td>
+                <td><button onclick="deleteUser(${u.id})" style="background:var(--danger)">Delete</button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    async function deleteUser(id) {
+        if (confirm('Delete this user?')) {
+            await fetch(`/api/users/${id}`, { method: 'DELETE' });
+            loadUsers();
+        }
+    }
+</script>
 </body>
 </html>
