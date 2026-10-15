@@ -206,7 +206,7 @@
             <div class="card" id="requestFormCard">
                 <h3>Submit New Request</h3>
                 <form id="requestForm" enctype="multipart/form-data">
-                    <input type="text" id="title" name="title" placeholder="Request Title" required>
+                    <input type="text" id="title" name="title" placeholder="Request Title / Purpose" required>
                     
                     <div id="targetDeptContainer">
                         <label><small>Select Target Department for Approval:</small></label>
@@ -231,8 +231,10 @@
                         </label>
                     </div>
 
-                    <label><small>Select Category:</small></label>
+                    <label><small>Select Request Type / Category:</small></label>
                     <select id="category" name="category" onchange="renderDynamicFields()">
+                        <option value="CAR_REQUEST">🚗 Car Request (ကားတောင်းခံလွှာ)</option>
+                        <option value="GATE_PASS">🎫 Gate Pass (ဂိတ်ဝင်ထွက်ခွင့်)</option>
                         <option value="Purchase">Purchase / Procurement</option>
                         <option value="Leave">Leave Request</option>
                         <option value="Maintenance">Maintenance / Repair</option>
@@ -242,7 +244,7 @@
 
                     <div id="dynamicFieldsContainer" class="dynamic-fields"></div>
 
-                    <textarea id="description" name="description" placeholder="Description..."></textarea>
+                    <textarea id="description" name="description" placeholder="Additional Notes / Description..."></textarea>
                     
                     <label><small>Attach File / Receipt / Image (Optional):</small></label>
                     <input type="file" id="attachment" name="attachment" accept="image/*,.pdf,.doc,.docx">
@@ -272,6 +274,8 @@
                 <input type="text" id="searchKeyword" placeholder="Search keyword..." oninput="filterRequests()">
                 <select id="filterCategory" onchange="filterRequests()">
                     <option value="">All Categories</option>
+                    <option value="CAR_REQUEST">Car Request</option>
+                    <option value="GATE_PASS">Gate Pass</option>
                     <option value="Purchase">Purchase</option>
                     <option value="Leave">Leave</option>
                     <option value="Maintenance">Maintenance</option>
@@ -326,7 +330,21 @@
             if (!container) return;
             container.innerHTML = '';
 
-            if (cat === 'Purchase') {
+            if (cat === 'CAR_REQUEST') {
+                container.innerHTML = '<label><small>Departure Date & Time:</small></label>' +
+                    '<input type="datetime-local" id="dyn_departureTime" required>' +
+                    '<label><small>Return Date & Time:</small></label>' +
+                    '<input type="datetime-local" id="dyn_returnTime" required>' +
+                    '<label><small>Number of Passengers:</small></label>' +
+                    '<input type="number" id="dyn_passengers" min="1" value="1" required>';
+            } else if (cat === 'GATE_PASS') {
+                container.innerHTML = '<label><small>Departure Date & Time:</small></label>' +
+                    '<input type="datetime-local" id="dyn_departureTime" required>' +
+                    '<label><small>Return Date & Time:</small></label>' +
+                    '<input type="datetime-local" id="dyn_returnTime" required>' +
+                    '<label><small>Item / Vehicle Details (e.g. Laptops, Plate No.):</small></label>' +
+                    '<textarea id="dyn_itemDetails" rows="2" placeholder="Enter items or vehicle info..." required></textarea>';
+            } else if (cat === 'Purchase') {
                 container.innerHTML = '<label><small>Estimated Amount ($ / MMK):</small></label>' +
                     '<input type="number" id="dyn_amount" placeholder="e.g. 500000 or 1000000" required>' +
                     '<label><small>Quantity / Items:</small></label>' +
@@ -627,7 +645,6 @@
 
                 let canAction = false;
                 if (req.status === 'PENDING' && currentUser) {
-                    // SoD check: Cannot approve own request
                     if (req.userId !== currentUser.id) {
                         if (['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)) {
                             canAction = true;
@@ -747,7 +764,15 @@
                     formData.append('userId', currentUser.id);
 
                     const extraFields = {};
-                    if (dialogCategory === 'Purchase') {
+                    if (dialogCategory === 'CAR_REQUEST') {
+                        extraFields.departureTime = document.getElementById('dyn_departureTime')?.value;
+                        extraFields.returnTime = document.getElementById('dyn_returnTime')?.value;
+                        extraFields.passengers = document.getElementById('dyn_passengers')?.value;
+                    } else if (dialogCategory === 'GATE_PASS') {
+                        extraFields.departureTime = document.getElementById('dyn_departureTime')?.value;
+                        extraFields.returnTime = document.getElementById('dyn_returnTime')?.value;
+                        extraFields.itemDetails = document.getElementById('dyn_itemDetails')?.value;
+                    } else if (dialogCategory === 'Purchase') {
                         extraFields.amount = document.getElementById('dyn_amount')?.value;
                         extraFields.quantity = document.getElementById('dyn_quantity')?.value;
                     } else if (dialogCategory === 'Leave') {
