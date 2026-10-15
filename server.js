@@ -74,29 +74,28 @@ async function getChatIdFromUsername(username) {
 
 // Auto Init Super Admin
 async function initSuperAdmin() {
-  try {
-    const hashedPassword = await bcrypt.hash('085236', 10);
-    const adminData = {
-      name: 'Kaung Sett Paing',
-      email: 'kaungsettpaing@admin.com',
-      password: hashedPassword,
-      department: 'Admin',
-      role: 'SUPER_ADMIN',
-      telegramId: SUPER_ADMIN_TELE_USERNAME
-    };
+    try {
+        const adminExists = await prisma.user.findFirst({
+            where: { role: 'SUPER_ADMIN' }
+        });
 
-    await prisma.user.upsert({
-      where: { email: 'kaungsettpaing@admin.com' },
-      update: adminData,
-      create: adminData
-    });
-
-    console.log(`--> SUPER_ADMIN Ready! Telegram Username: @${SUPER_ADMIN_TELE_USERNAME}`);
-  } catch (err) {
-    console.error("Auto Admin Init Error:", err.message);
-  }
+        if (!adminExists) {
+            const hashedPassword = await bcrypt.hash('admin123', 10);
+            await prisma.user.create({
+                data: {
+                    name: 'Super Admin',
+                    telegramId: 'okeydokey2',
+                    password: hashedPassword,
+                    role: 'SUPER_ADMIN',
+                    department: 'Executive Management'
+                }
+            });
+            console.log('✅ Default Super Admin (okeydokey2 / admin123) created successfully!');
+        }
+    } catch (err) {
+        console.error('Error initializing Super Admin:', err);
+    }
 }
-
 // User Registration via Telegram Username
 app.post('/api/login', async (req, res) => {
     try {
