@@ -97,7 +97,7 @@ async function initSuperAdmin() {
     }
 }
 
-// Login Endpoint
+// Login Endpoint (Fixed Prisma mode error)
 app.post('/api/login', async (req, res) => {
   try {
     const loginKey = req.body.loginKey || req.body.username || req.body.email || '';
@@ -112,8 +112,8 @@ app.post('/api/login', async (req, res) => {
     let user = await prisma.user.findFirst({
       where: {
         OR: [
-          { telegramId: { equals: cleanKey, mode: 'insensitive' } },
-          { name: { equals: cleanKey, mode: 'insensitive' } }
+          { telegramId: cleanKey },
+          { name: cleanKey }
         ]
       }
     });
