@@ -8,17 +8,19 @@ datasource db {
 }
 
 model User {
-  id         Int        @id @default(autoincrement())
-  email      String     @unique
-  password   String
-  name       String?
-  department String?
-  role       String     @default("USER")
-  telegramId String?
-  otp        String?
-  otpExpiry  DateTime?
-  requests   Request[]
-  auditLogs  AuditLog[]
+  id          Int        @id @default(autoincrement())
+  email       String     @unique
+  password    String
+  name        String?
+  department  String?
+  role        String     @default("USER")
+  telegramId  String?
+  accessExpiry DateTime?
+  otp         String?
+  otpExpiry   DateTime?
+  createdAt   DateTime   @default(now())
+  requests    Request[]
+  auditLogs   AuditLog[]
 }
 
 model Request {

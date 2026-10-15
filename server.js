@@ -253,9 +253,11 @@ app.get('/api/users', async (req, res) => {
             select: {
                 id: true,
                 name: true,
+                email: true,
                 telegramId: true,
                 department: true,
                 role: true,
+                accessExpiry: true,
                 createdAt: true
             },
             orderBy: { id: 'desc' }

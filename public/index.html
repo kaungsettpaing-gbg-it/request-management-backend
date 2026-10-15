@@ -442,10 +442,13 @@
         async function loadUsers() {
             try {
                 const res = await fetch('/api/users');
-                allUsers = await res.json();
+                const data = await res.json();
+                allUsers = Array.isArray(data) ? data : [];
                 renderUserTable();
             } catch(err) {
                 console.error("Load users error:", err);
+                allUsers = [];
+                renderUserTable();
             }
         }
 
@@ -453,6 +456,8 @@
             const tbody = document.getElementById('userTableBody');
             if (!tbody) return;
             tbody.innerHTML = '';
+
+            if (!Array.isArray(allUsers)) return;
 
             allUsers.forEach(u => {
                 const expiryVal = u.accessExpiry ? new Date(u.accessExpiry).toISOString().slice(0,10) : '';
