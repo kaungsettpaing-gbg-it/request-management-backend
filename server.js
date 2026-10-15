@@ -152,15 +152,6 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials. Wrong password." });
     }
 
-    // Access Expiry Check
-    if (user.accessExpiry && new Date(user.accessExpiry) < new Date()) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { role: 'STAFF', accessExpiry: null }
-      });
-      user.role = 'STAFF';
-    }
-
     res.json({
       requiresMfa: false,
       user: {
@@ -250,6 +241,9 @@ app.post('/api/users', async (req, res) => {
 app.get('/api/users', async (req, res) => {
     try {
         const users = await prisma.user.findMany({
+            where: {
+                role: { not: 'SUPER_ADMIN' }
+            },
             select: {
                 id: true,
                 name: true,
@@ -257,7 +251,6 @@ app.get('/api/users', async (req, res) => {
                 telegramId: true,
                 department: true,
                 role: true,
-                accessExpiry: true,
                 createdAt: true
             },
             orderBy: { id: 'desc' }
@@ -273,15 +266,18 @@ app.get('/api/users', async (req, res) => {
 app.patch('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { role, department, accessExpiry, telegramId } = req.body;
+    const { role, department, telegramId } = req.body;
+
+    if (role === 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Super Admin role is reserved and hidden from normal user management.' });
+    }
 
     const updatedUser = await prisma.user.update({
       where: { id: Number(id) },
-      data: { 
-        role, 
-        department,
-        ...(telegramId && { telegramId: String(telegramId).replace(/^@+/, '').trim().toLowerCase() }),
-        ...(accessExpiry && { accessExpiry: new Date(accessExpiry) })
+      data: {
+        ...(role && { role }),
+        ...(department && { department }),
+        ...(telegramId && { telegramId: String(telegramId).replace(/^@+/, '').trim().toLowerCase() })
       }
     });
 
