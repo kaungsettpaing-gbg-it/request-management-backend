@@ -37,7 +37,7 @@ async function sendTelegramOTP(chatId, otpCode) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: `🔐 *Security Verification*\n\nYour Login 2FA Code is: \`${otpCode}\`\nThis code expires in 5 minutes.`,
+        text: `🔐 *Security Verification*\n\nYour 2FA / Reset Code is: \`${otpCode}\`\nThis code expires in 5 minutes.`,
         parse_mode: 'Markdown'
       })
     });
@@ -93,7 +93,7 @@ async function initSuperAdmin() {
 
     console.log(`--> SUPER_ADMIN Ready! Telegram Username: @${SUPER_ADMIN_TELE_USERNAME}`);
   } catch (err) {
-    console.error("Auto Admin Error:", err.message);
+    console.error("Auto Admin Init Error:", err.message);
   }
 }
 
@@ -112,7 +112,7 @@ app.post('/api/users', async (req, res) => {
     const newUser = await prisma.user.create({
       data: { 
         name, 
-        email: `${cleanTelegram}@telegram.local`, // dummy email for unique schema constraint
+        email: `${cleanTelegram}@telegram.local`,
         password: hashedPassword, 
         department: department || "General", 
         role: role || "STAFF",
@@ -126,23 +126,28 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-// Login via Telegram Username
+// Login via Telegram Username or Name
 app.post('/api/login', async (req, res) => {
   try {
     const { loginKey, password } = req.body;
+    if (!loginKey || !password) {
+      return res.status(400).json({ error: "Please provide login key and password." });
+    }
+
     const cleanKey = loginKey.replace('@', '').trim().toLowerCase();
 
     let user = await prisma.user.findFirst({
       where: {
         OR: [
           { telegramId: { equals: cleanKey, mode: 'insensitive' } },
-          { name: { equals: cleanKey, mode: 'insensitive' } }
+          { name: { equals: cleanKey, mode: 'insensitive' } },
+          { email: { equals: cleanKey, mode: 'insensitive' } }
         ]
       }
     });
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid credentials. Telegram Username not found." });
+      return res.status(401).json({ error: "Invalid credentials. User not found." });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -159,7 +164,7 @@ app.post('/api/login', async (req, res) => {
       user.role = 'STAFF';
     }
 
-    // Attempt Telegram OTP Sending
+    // Attempt Telegram OTP Sending for Security Verification
     let chatId = await getChatIdFromUsername(user.telegramId);
 
     if (chatId) {
@@ -177,13 +182,14 @@ app.post('/api/login', async (req, res) => {
       }
     }
 
+    // Fallback direct login if Telegram chat ID is not cached yet
     res.json({ message: "Login successful", user });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Verify Telegram OTP
+// Verify Telegram OTP (Login 2FA)
 app.post('/api/verify-mfa', async (req, res) => {
   try {
     const { userId, code } = req.body;
@@ -203,6 +209,64 @@ app.post('/api/verify-mfa', async (req, res) => {
     });
 
     res.json({ message: "Authentication successful", user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Forgot Password - Request OTP via Telegram Username
+app.post('/api/forgot-password', async (req, res) => {
+  try {
+    const { telegramUsername } = req.body;
+    if (!telegramUsername) return res.status(400).json({ error: "Telegram username is required." });
+
+    const cleanUser = telegramUsername.replace('@', '').trim().toLowerCase();
+    const user = await prisma.user.findFirst({ where: { telegramId: cleanUser } });
+
+    if (!user) {
+      return res.status(404).json({ error: "User with this Telegram username not found." });
+    }
+
+    let chatId = await getChatIdFromUsername(user.telegramId);
+    if (!chatId) {
+      return res.status(400).json({ error: "Telegram Chat ID not found. Please message the bot (/start) first." });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = new Date(Date.now() + 5 * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { otp: code, otpExpiry: expiry }
+    });
+
+    const sent = await sendTelegramOTP(chatId, code);
+    if (!sent) return res.status(500).json({ error: "Failed to send reset code via Telegram." });
+
+    res.json({ message: "Password reset OTP sent to Telegram successfully.", userId: user.id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Reset Password with OTP
+app.post('/api/reset-password', async (req, res) => {
+  try {
+    const { userId, code, newPassword } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
+
+    if (!user || !user.otp || user.otp !== code || (user.otpExpiry && new Date() > new Date(user.otpExpiry))) {
+      return res.status(400).json({ error: "Invalid or expired reset code." });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword, otp: null, otpExpiry: null }
+    });
+
+    res.json({ message: "Password updated successfully! You can now log in." });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -364,25 +428,6 @@ app.patch('/api/requests/:id/status', async (req, res) => {
     }
 
     res.json({ message: "Approval status updated", request: updatedRequest });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/export/requests', async (req, res) => {
-  try {
-    const requests = await prisma.request.findMany({ include: { user: true }, orderBy: { createdAt: 'desc' } });
-    let csv = 'ID,Title,Category,Target Dept,Stage,Status,Description,Submitted By,Sender Dept,Role,Date\n';
-    requests.forEach(r => {
-      const userName = r.user ? r.user.name : 'Unknown';
-      const userDept = r.user ? r.user.department : 'N/A';
-      const userRole = r.user ? r.user.role : 'N/A';
-      const desc = (r.description || '').replace(/"/g, '""');
-      csv += `${r.id},"${r.title}","${r.category}","${r.targetDepartment || 'General'}","${r.approvalStage}","${r.status}","${desc}","${userName}","${userDept}","${userRole}","${r.createdAt}"\n`;
-    });
-    res.header('Content-Type', 'text/csv');
-    res.attachment('security_audit_request_report.csv');
-    res.send(csv);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
