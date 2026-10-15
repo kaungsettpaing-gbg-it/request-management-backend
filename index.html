@@ -21,10 +21,10 @@
     <div class="container">
         <h2>Request Management System</h2>
         
-        <h3>1. Submit New Request (Car / Gate Pass)</h3>
+        <h3>1. Submit Request (Car / Gate Pass)</h3>
         <form id="requestForm">
             <label for="userId">User ID:</label>
-            <input type="number" id="userId" placeholder="e.g., 2" required>
+            <input type="number" id="userId" placeholder="e.g., 1" required>
 
             <label for="requestType">Request Type:</label>
             <select id="requestType" required onchange="toggleFormFields()">
@@ -71,7 +71,6 @@
     </div>
 
     <script>
-        
         function toggleFormFields() {
             const type = document.getElementById('requestType').value;
             const passengerGroup = document.getElementById('passengerGroup');
@@ -86,7 +85,6 @@
             }
         }
 
-        
         document.getElementById('requestForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -98,7 +96,6 @@
             const passengers = document.getElementById('passengers').value;
             const itemDetails = document.getElementById('itemDetails').value;
 
-            
             const description = `Type: ${requestType} | From: ${departureTime} To: ${returnTime} | ` + 
                 (requestType === 'CAR' ? `Passengers: ${passengers}` : `Details: ${itemDetails}`);
 
@@ -116,14 +113,13 @@
                     toggleFormFields();
                     loadRequests();
                 } else {
-                    alert("Error: " + data.error);
+                    alert("Error: " + (data.error || 'Failed'));
                 }
             } catch (err) {
                 alert("Failed to connect to server");
             }
         });
 
-        
         async function loadRequests() {
             try {
                 const res = await fetch('/api/requests');
@@ -131,7 +127,7 @@
                 const listDiv = document.getElementById('requestList');
                 listDiv.innerHTML = '';
 
-                if (requests.length === 0) {
+                if (!Array.isArray(requests) || requests.length === 0) {
                     listDiv.innerHTML = '<p>No requests found.</p>';
                     return;
                 }
