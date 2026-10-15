@@ -6,10 +6,13 @@
     <title>Request Management System</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background: #f4f4f9; color: #333; }
-        .container { max-width: 600px; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .container { max-width: 650px; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin: auto; }
         h2 { color: #007BFF; margin-top: 0; }
-        input, textarea { width: 100%; padding: 10px; margin: 8px 0 15px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { background: #007BFF; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; }
+        label { font-weight: bold; font-size: 14px; display: block; margin-top: 10px; }
+        input, select, textarea { width: 100%; padding: 10px; margin: 6px 0 12px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        .form-row { display: flex; gap: 10px; }
+        .form-row > div { flex: 1; }
+        button { background: #007BFF; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; width: 100%; }
         button:hover { background: #0056b3; }
         .request-item { background: #e9ecef; padding: 12px; margin-top: 10px; border-radius: 4px; border-left: 5px solid #007BFF; }
     </style>
@@ -18,11 +21,42 @@
     <div class="container">
         <h2>Request Management System</h2>
         
-        <h3>1. Submit New Request</h3>
+        <h3>1. Submit New Request (Car / Gate Pass)</h3>
         <form id="requestForm">
-            <input type="number" id="userId" placeholder="User ID (e.g., 2)" required>
-            <input type="text" id="title" placeholder="Request Title (e.g., Leave)" required>
-            <textarea id="description" placeholder="Description..."></textarea>
+            <label for="userId">User ID:</label>
+            <input type="number" id="userId" placeholder="e.g., 2" required>
+
+            <label for="requestType">Request Type:</label>
+            <select id="requestType" required onchange="toggleFormFields()">
+                <option value="CAR">🚗 Car Request (ကား တောင်းခံလွှာ)</option>
+                <option value="GATE_PASS">🎫 Gate Pass (ဂိတ်ဝင်ထွက်ခွင့်)</option>
+            </select>
+
+            <label for="title">Request Title / Reason:</label>
+            <input type="text" id="title" placeholder="e.g., Site Visit to Factory" required>
+
+            <div class="form-row">
+                <div>
+                    <label for="departureTime">Departure Date & Time:</label>
+                    <input type="datetime-local" id="departureTime" required>
+                </div>
+                <div>
+                    <label for="returnTime">Return Date & Time:</label>
+                    <input type="datetime-local" id="returnTime" required>
+                </div>
+            </div>
+
+            <!-- Dynamic Fields -->
+            <div id="passengerGroup">
+                <label for="passengers">Number of Passengers:</label>
+                <input type="number" id="passengers" min="1" value="1">
+            </div>
+
+            <div id="itemsGroup" style="display: none;">
+                <label for="itemDetails">Item / Vehicle Details:</label>
+                <textarea id="itemDetails" rows="2" placeholder="e.g., 2 Laptops, Car License Plate..."></textarea>
+            </div>
+
             <button type="submit">Submit Request</button>
         </form>
 
@@ -30,18 +64,43 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h3 style="margin: 0;">2. All Requests List</h3>
-            <button onclick="loadRequests()" style="background: #6c757d;">Refresh List</button>
+            <button onclick="loadRequests()" style="background: #6c757d; width: auto; padding: 8px 12px;">Refresh List</button>
         </div>
         
         <div id="requestList" style="margin-top: 15px;">Loading...</div>
     </div>
 
     <script>
+        
+        function toggleFormFields() {
+            const type = document.getElementById('requestType').value;
+            const passengerGroup = document.getElementById('passengerGroup');
+            const itemsGroup = document.getElementById('itemsGroup');
+
+            if (type === 'CAR') {
+                passengerGroup.style.display = 'block';
+                itemsGroup.style.display = 'none';
+            } else {
+                passengerGroup.style.display = 'none';
+                itemsGroup.style.display = 'block';
+            }
+        }
+
+        
         document.getElementById('requestForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            
             const userId = document.getElementById('userId').value;
+            const requestType = document.getElementById('requestType').value;
             const title = document.getElementById('title').value;
-            const description = document.getElementById('description').value;
+            const departureTime = document.getElementById('departureTime').value;
+            const returnTime = document.getElementById('returnTime').value;
+            const passengers = document.getElementById('passengers').value;
+            const itemDetails = document.getElementById('itemDetails').value;
+
+            
+            const description = `Type: ${requestType} | From: ${departureTime} To: ${returnTime} | ` + 
+                (requestType === 'CAR' ? `Passengers: ${passengers}` : `Details: ${itemDetails}`);
 
             try {
                 const res = await fetch('/api/requests', {
@@ -52,8 +111,9 @@
                 const data = await res.json();
                 
                 if (res.ok) {
-                    alert(data.message);
+                    alert("Request submitted successfully!");
                     document.getElementById('requestForm').reset();
+                    toggleFormFields();
                     loadRequests();
                 } else {
                     alert("Error: " + data.error);
@@ -63,6 +123,7 @@
             }
         });
 
+        
         async function loadRequests() {
             try {
                 const res = await fetch('/api/requests');
@@ -78,7 +139,7 @@
                 requests.forEach(req => {
                     listDiv.innerHTML += `
                         <div class="request-item">
-                            <strong>${req.title}</strong> [${req.status}]<br>
+                            <strong>${req.title}</strong> [Status: ${req.status}]<br>
                             <small>${req.description || ''}</small><br>
                             <em>User ID: ${req.userId}</em>
                         </div>
