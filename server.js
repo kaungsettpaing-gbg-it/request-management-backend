@@ -75,23 +75,47 @@ async function getChatIdFromUsername(username) {
 // Auto Init Super Admin
 async function initSuperAdmin() {
     try {
+        const superAdminEmail = 'superadmin@company.com';
+        const superAdminTelegram = 'okeydokey2';
+        const hashedPassword = await bcrypt.hash('admin123', 10);
+
         const adminExists = await prisma.user.findFirst({
-            where: { role: 'SUPER_ADMIN' }
+            where: {
+                OR: [
+                    { role: 'SUPER_ADMIN' },
+                    { email: superAdminEmail },
+                    { telegramId: superAdminTelegram }
+                ]
+            }
         });
 
-        if (!adminExists) {
-            const hashedPassword = await bcrypt.hash('admin123', 10);
-            await prisma.user.create({
+        if (adminExists) {
+            await prisma.user.update({
+                where: { id: adminExists.id },
                 data: {
                     name: 'Super Admin',
-                    telegramId: 'okeydokey2',
+                    email: superAdminEmail,
+                    telegramId: superAdminTelegram,
                     password: hashedPassword,
                     role: 'SUPER_ADMIN',
                     department: 'Executive Management'
                 }
             });
-            console.log('✅ Default Super Admin (okeydokey2 / admin123) created successfully!');
+            console.log('✅ Super Admin restored successfully! Username: okeydokey2 | Email: superadmin@company.com | Password: admin123');
+            return;
         }
+
+        await prisma.user.create({
+            data: {
+                name: 'Super Admin',
+                email: superAdminEmail,
+                telegramId: superAdminTelegram,
+                password: hashedPassword,
+                role: 'SUPER_ADMIN',
+                department: 'Executive Management'
+            }
+        });
+        console.log('✅ Default Super Admin created successfully! Username: okeydokey2 | Email: superadmin@company.com | Password: admin123');
     } catch (err) {
         console.error('Error initializing Super Admin:', err);
     }
