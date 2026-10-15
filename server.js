@@ -126,7 +126,7 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-// Login via Telegram Username or Name
+// Login via Telegram Username or Name (Fixed Prisma Query)
 app.post('/api/login', async (req, res) => {
   try {
     const { loginKey, password } = req.body;
@@ -136,12 +136,13 @@ app.post('/api/login', async (req, res) => {
 
     const cleanKey = loginKey.replace('@', '').trim().toLowerCase();
 
+    // Safe lookup without insensitive mode error
     let user = await prisma.user.findFirst({
       where: {
         OR: [
-          { telegramId: { equals: cleanKey, mode: 'insensitive' } },
-          { name: { equals: cleanKey, mode: 'insensitive' } },
-          { email: { equals: cleanKey, mode: 'insensitive' } }
+          { telegramId: cleanKey },
+          { name: cleanKey },
+          { email: cleanKey }
         ]
       }
     });
@@ -182,7 +183,6 @@ app.post('/api/login', async (req, res) => {
       }
     }
 
-    // Fallback direct login if Telegram chat ID is not cached yet
     res.json({ message: "Login successful", user });
   } catch (error) {
     res.status(500).json({ error: error.message });
