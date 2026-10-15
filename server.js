@@ -53,7 +53,7 @@ async function sendTelegramOTP(chatId, otpCode) {
 async function getChatIdFromUsername(username) {
   if (!username) return null;
   try {
-    const cleanUsername = username.replace('@', '').trim().toLowerCase();
+    const cleanUsername = String(username).replace(/^@+/, '').trim().toLowerCase();
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`;
     const response = await fetch(url);
     const data = await response.json();
@@ -107,11 +107,12 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: "Username and password are required." });
     }
 
-    const cleanKey = String(loginKey).replace('@', '').trim().toLowerCase();
+    const cleanKey = String(loginKey).replace(/^@+/, '').trim().toLowerCase();
 
     let user = await prisma.user.findFirst({
       where: {
         OR: [
+          { email: cleanKey },
           { telegramId: cleanKey },
           { name: cleanKey }
         ]
@@ -177,6 +178,50 @@ app.post('/api/verify-mfa', async (req, res) => {
   }
 });
 
+// Create User API
+app.post('/api/users', async (req, res) => {
+  try {
+    const { name, email, password, department, role, telegramId } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email, and password are required.' });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+    if (existingUser) {
+      return res.status(409).json({ error: 'A user with this email already exists.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = await prisma.user.create({
+      data: {
+        name: String(name).trim(),
+        email: normalizedEmail,
+        password: hashedPassword,
+        department: department || 'General',
+        role: role || 'STAFF',
+        telegramId: telegramId ? String(telegramId).replace(/^@+/, '').trim().toLowerCase() : null
+      }
+    });
+
+    res.status(201).json({
+      message: 'User registered successfully',
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        department: newUser.department,
+        role: newUser.role
+      }
+    });
+  } catch (error) {
+    console.error('Create User Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get All Users API
 app.get('/api/users', async (req, res) => {
     try {
@@ -209,7 +254,7 @@ app.patch('/api/users/:id', async (req, res) => {
       data: { 
         role, 
         department,
-        ...(telegramId && { telegramId: telegramId.replace('@', '').trim().toLowerCase() }),
+        ...(telegramId && { telegramId: String(telegramId).replace(/^@+/, '').trim().toLowerCase() }),
         ...(accessExpiry && { accessExpiry: new Date(accessExpiry) })
       }
     });
