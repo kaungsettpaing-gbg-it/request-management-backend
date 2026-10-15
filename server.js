@@ -96,59 +96,15 @@ async function initSuperAdmin() {
         console.error('Error initializing Super Admin:', err);
     }
 }
-// User Registration via Telegram Username
-app.post('/api/login', async (req, res) => {
-    try {
-        // req.body ထဲမှာ loginKey သို့မဟုတ် username/email ပါလာနိုင်တာကို စစ်ပါတယ်
-        const rawInput = req.body.loginKey || req.body.username || req.body.email || '';
 
-        if (!rawInput || !req.body.password) {
-            return res.status(400).json({ error: 'Username and password are required.' });
-        }
-
-        // rawInput က string ဖြစ်မှ replace ခေါ်ပါတယ် (Error လုံးဝမတက်တော့ပါ)
-        const cleanLoginKey = String(rawInput).replace('@', '').trim();
-
-        // Database ထဲမှာ telegramId သို့မဟုတ် email/name နဲ့ ရှာဖွေခြင်း
-        const user = await prisma.user.findFirst({
-            where: {
-                OR: [
-                    { telegramId: cleanLoginKey },
-                    { email: cleanLoginKey },
-                    { name: cleanLoginKey }
-                ]
-            }
-        });
-
-        if (!user) {
-            return res.status(401).json({ error: 'User not found.' });
-        }
-
-        const isPasswordValid = await bcrypt.compare(req.body.password, user.password);
-        if (!isPasswordValid) {
-            return res.status(401).json({ error: 'Invalid password.' });
-        }
-
-        res.json({
-            requiresMfa: false,
-            user: {
-                id: user.id,
-                name: user.name,
-                telegramId: user.telegramId,
-                role: user.role,
-                department: user.department
-            }
-        });
-    } catch (err) {
-        console.error('Login Error:', err);
-        res.status(500).json({ error: 'Login Error: ' + err.message });
-    }
-});
-// Login via Telegram Username
+// Login via Telegram Username (OTP & MFA integrated)
 app.post('/api/login', async (req, res) => {
   try {
     const { loginKey, password } = req.body;
-    const cleanKey = loginKey.replace('@', '').trim().toLowerCase();
+    if (!loginKey || !password) {
+      return res.status(400).json({ error: "Username and password are required." });
+    }
+    const cleanKey = String(loginKey).replace('@', '').trim().toLowerCase();
 
     let user = await prisma.user.findFirst({
       where: {
@@ -226,7 +182,7 @@ app.post('/api/verify-mfa', async (req, res) => {
   }
 });
 
-// Get All Users API (Fixed 500 Error)
+// Get All Users API
 app.get('/api/users', async (req, res) => {
     try {
         const users = await prisma.user.findMany({
@@ -279,6 +235,7 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
+// Create Request API (Fixed missing response and catch block)
 app.post('/api/requests', upload.single('attachment'), async (req, res) => {
   try {
     const { title, description, category, userId, targetDepartment, extraFields, isDirectExecutive, requiresItApproval } = req.body;
@@ -303,6 +260,10 @@ app.post('/api/requests', upload.single('attachment'), async (req, res) => {
         extraFields: extraFields || null
       }
     });
+    res.json(newRequest);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/requests', async (req, res) => {
