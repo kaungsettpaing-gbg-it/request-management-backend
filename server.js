@@ -97,10 +97,9 @@ async function initSuperAdmin() {
     }
 }
 
-// Login via Telegram Username (OTP & MFA integrated)
+// Login Endpoint
 app.post('/api/login', async (req, res) => {
   try {
-    // Frontend က loginKey, username, email ဘယ်လိုလာလာ အကုန်ဖမ်း줍니다
     const loginKey = req.body.loginKey || req.body.username || req.body.email || '';
     const password = req.body.password;
 
@@ -128,6 +127,15 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials. Wrong password." });
     }
 
+    // Access Expiry Check
+    if (user.accessExpiry && new Date(user.accessExpiry) < new Date()) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: 'STAFF', accessExpiry: null }
+      });
+      user.role = 'STAFF';
+    }
+
     res.json({
       requiresMfa: false,
       user: {
@@ -140,38 +148,6 @@ app.post('/api/login', async (req, res) => {
     });
   } catch (error) {
     console.error("Login Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-    // Access Expiry Check
-    if (user.accessExpiry && new Date(user.accessExpiry) < new Date()) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { role: 'STAFF', accessExpiry: null }
-      });
-      user.role = 'STAFF';
-    }
-
-    // Attempt Telegram OTP Sending
-    let chatId = await getChatIdFromUsername(user.telegramId);
-
-    if (chatId) {
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiry = new Date(Date.now() + 5 * 60 * 1000);
-
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { otp: code, otpExpiry: expiry }
-      });
-
-      const sent = await sendTelegramOTP(chatId, code);
-      if (sent) {
-        return res.json({ requiresMfa: true, userId: user.id, message: `OTP sent to Telegram @${user.telegramId}` });
-      }
-    }
-
-    res.json({ message: "Login successful", user });
-  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
@@ -254,7 +230,7 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// Create Request API (Fixed missing response and catch block)
+// Create Request API
 app.post('/api/requests', upload.single('attachment'), async (req, res) => {
   try {
     const { title, description, category, userId, targetDepartment, extraFields, isDirectExecutive, requiresItApproval } = req.body;
