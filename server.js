@@ -227,14 +227,25 @@ app.post('/api/verify-mfa', async (req, res) => {
   }
 });
 
-// Get all users
+// Get All Users API (Fixed 500 Error)
 app.get('/api/users', async (req, res) => {
-  try {
-    const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    try {
+        const users = await prisma.user.findMany({
+            select: {
+                id: true,
+                name: true,
+                telegramId: true,
+                department: true,
+                role: true,
+                createdAt: true
+            },
+            orderBy: { id: 'desc' }
+        });
+        res.json(users);
+    } catch (err) {
+        console.error('Get Users Error:', err);
+        res.status(500).json({ error: 'Failed to fetch users: ' + err.message });
+    }
 });
 
 // Update User
