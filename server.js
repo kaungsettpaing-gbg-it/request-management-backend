@@ -100,23 +100,27 @@ async function initSuperAdmin() {
 // Login via Telegram Username (OTP & MFA integrated)
 app.post('/api/login', async (req, res) => {
   try {
-    const { loginKey, password } = req.body;
+    // Frontend က loginKey, username, email ဘယ်လိုလာလာ အကုန်ဖမ်း줍니다
+    const loginKey = req.body.loginKey || req.body.username || req.body.email || '';
+    const password = req.body.password;
+
     if (!loginKey || !password) {
       return res.status(400).json({ error: "Username and password are required." });
     }
+
     const cleanKey = String(loginKey).replace('@', '').trim().toLowerCase();
 
     let user = await prisma.user.findFirst({
       where: {
         OR: [
-          { telegramId: cleanKey },
-          { name: cleanKey }
+          { telegramId: { equals: cleanKey, mode: 'insensitive' } },
+          { name: { equals: cleanKey, mode: 'insensitive' } }
         ]
       }
     });
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid credentials. Telegram Username not found." });
+      return res.status(401).json({ error: "Invalid credentials. User not found." });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -124,6 +128,21 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials. Wrong password." });
     }
 
+    res.json({
+      requiresMfa: false,
+      user: {
+        id: user.id,
+        name: user.name,
+        telegramId: user.telegramId,
+        role: user.role,
+        department: user.department
+      }
+    });
+  } catch (error) {
+    console.error("Login Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
     // Access Expiry Check
     if (user.accessExpiry && new Date(user.accessExpiry) < new Date()) {
       await prisma.user.update({
