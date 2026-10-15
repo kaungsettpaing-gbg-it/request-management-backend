@@ -121,7 +121,7 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-// Login with Password Hashing Verification & Telegram 2FA Generation
+// Login with Password Hashing Verification & Optional Telegram 2FA for Super Admin only
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -147,26 +147,8 @@ app.post('/api/login', async (req, res) => {
       user.role = 'STAFF';
     }
 
-    // MFA / 2FA Enforcement for Executive / Admin roles via Telegram Bot
-    if (['SUPER_ADMIN', 'ADMIN', 'GM', 'DGM'].includes(user.role)) {
-      
-      // Auto-fetch Telegram Chat ID if missing
-      if (!user.telegramId) {
-        const autoChatId = await getChatIdFromUsername(SUPER_ADMIN_TELE_USERNAME);
-        if (autoChatId) {
-          user = await prisma.user.update({
-            where: { id: user.id },
-            data: { telegramId: autoChatId }
-          });
-        }
-      }
-
-      if (!user.telegramId) {
-        return res.status(400).json({ 
-          error: "Telegram Chat ID is not linked. Please start the Telegram Bot by sending /start first." 
-        });
-      }
-
+    // MFA / 2FA Enforcement ONLY for SUPER_ADMIN role if Telegram is linked
+    if (user.role === 'SUPER_ADMIN' && user.telegramId) {
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiry = new Date(Date.now() + 5 * 60 * 1000); // Valid for 5 minutes
 
@@ -178,14 +160,13 @@ app.post('/api/login', async (req, res) => {
 
       // Send via Telegram Bot
       const sent = await sendTelegramOTP(user.telegramId, code);
-      if (!sent) {
-        return res.status(500).json({ error: "Failed to send verification code via Telegram Bot." });
+      if (sent) {
+        console.log(`[TELEGRAM 2FA] Code sent to Super Admin (Chat ID: ${user.telegramId})`);
+        return res.json({ requiresMfa: true, email: user.email, message: "2FA Code sent to your Telegram!" });
       }
-
-      console.log(`[TELEGRAM 2FA] Code sent to ${user.email} (Chat ID: ${user.telegramId})`);
-      return res.json({ requiresMfa: true, email: user.email, message: "2FA Code sent to your Telegram!" });
     }
 
+    // Normal users and regular admins can login directly without blocking MFA
     res.json({ message: "Login successful", user });
   } catch (error) {
     res.status(500).json({ error: error.message });
