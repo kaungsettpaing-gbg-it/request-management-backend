@@ -3,21 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise Request Management System</title>
+    <title>Enterprise Request Management System (Car & Gate Pass)</title>
     <style>
         :root {
             --primary: #1e293b;
+            --primary-light: #334155;
             --accent: #2563eb;
+            --accent-hover: #1d4ed8;
             --bg: #f8fafc;
             --card: #ffffff;
             --text: #0f172a;
+            --text-muted: #64748b;
+            --border: #cbd5e1;
             --success: #16a34a;
             --danger: #dc2626;
             --warning: #d97706;
+            --radius: 8px;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background: var(--bg);
             color: var(--text);
             margin: 0;
@@ -25,7 +30,7 @@
         }
 
         .container {
-            max-width: 1000px;
+            max-width: 1100px;
             margin: 0 auto;
         }
 
@@ -35,17 +40,40 @@
             align-items: center;
             background: var(--primary);
             color: white;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            padding: 20px 25px;
+            border-radius: var(--radius);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 25px;
+        }
+
+        .header h2 {
+            margin: 0;
+            font-size: 22px;
+            letter-spacing: 0.5px;
+        }
+
+        #userInfo {
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 6px 12px;
+            border-radius: 20px;
         }
 
         .card {
             background: var(--card);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 25px;
+            border-radius: var(--radius);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
             margin-bottom: 20px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .card h3 {
+            margin-top: 0;
+            color: var(--primary);
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 10px;
+            font-size: 18px;
         }
 
         .tabs {
@@ -58,9 +86,16 @@
             padding: 10px 20px;
             border: none;
             background: #e2e8f0;
+            color: var(--text-muted);
             cursor: pointer;
-            border-radius: 6px;
+            border-radius: var(--radius);
             font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            background: #cbd5e1;
         }
 
         .tab-btn.active {
@@ -71,28 +106,74 @@
         form {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 15px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
         }
 
         input, select, textarea {
-            padding: 10px;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             font-size: 14px;
+            background: #fff;
+            color: var(--text);
+            transition: border-color 0.2s;
         }
 
-        button {
-            padding: 10px 15px;
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        button.btn-primary {
+            padding: 12px 20px;
             background: var(--accent);
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: var(--radius);
             cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        button.btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .auth-container {
+            max-width: 450px;
+            margin: 40px auto;
+        }
+
+        .auth-switch {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .auth-switch a {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: none;
             font-weight: 600;
         }
 
-        button:hover {
-            opacity: 0.9;
+        .auth-switch a:hover {
+            text-decoration: underline;
         }
 
         table {
@@ -103,24 +184,43 @@
 
         th, td {
             text-align: left;
-            padding: 10px;
+            padding: 12px;
             border-bottom: 1px solid #e2e8f0;
+            font-size: 14px;
         }
 
         th {
             background: #f1f5f9;
+            color: var(--primary);
+            font-weight: 600;
         }
 
         .badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
         }
 
         .badge-pending { background: #fef3c7; color: var(--warning); }
         .badge-approved { background: #dcfce7; color: var(--success); }
         .badge-rejected { background: #fee2e2; color: var(--danger); }
+
+        .action-btns {
+            display: flex;
+            gap: 6px;
+        }
+
+        .action-btns button {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 4px;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-weight: 600;
+        }
 
         .hidden { display: none !important; }
     </style>
@@ -129,72 +229,127 @@
 
 <div class="container">
     <div class="header">
-        <h2>GBG Request Management System</h2>
+        <h2>GBG Enterprise Request Management</h2>
         <div id="userInfo">Not Logged In</div>
     </div>
 
-    <!-- Login Box (Telegram Username) -->
-    <div id="loginSection" class="card">
-        <h3>Login with Telegram Username</h3>
+    <!-- 1. LOGIN SECTION -->
+    <div id="loginSection" class="card auth-container">
+        <h3>System Login</h3>
         <form id="loginForm">
-            <input type="text" id="loginKey" placeholder="Telegram Username (e.g. okeydokey2 or @okeydokey2)" required>
-            <input type="password" id="loginPassword" placeholder="Password" required>
-            <button type="submit">Login</button>
+            <div class="form-group">
+                <label>Telegram Username</label>
+                <input type="text" id="loginKey" placeholder="e.g. okeydokey2 or @okeydokey2" required>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="loginPassword" placeholder="••••••••" required>
+            </div>
+            <button type="submit" class="btn-primary">Login to System</button>
+        </form>
+        <div class="auth-switch">
+            <a onclick="showSection('forgotSection')">Forgot Password?</a>
+        </div>
+    </div>
+
+    <!-- 2. FORGOT PASSWORD SECTION -->
+    <div id="forgotSection" class="card auth-container hidden">
+        <h3>Reset Password via Telegram</h3>
+        <form id="forgotForm">
+            <div class="form-group">
+                <label>Your Telegram Username</label>
+                <input type="text" id="forgotUsername" placeholder="e.g. okeydokey2" required>
+            </div>
+            <button type="submit" class="btn-primary">Send Reset OTP</button>
+        </form>
+        <div class="auth-switch">
+            <a onclick="showSection('loginSection')">Back to Login</a>
+        </div>
+    </div>
+
+    <!-- 3. RESET PASSWORD SECTION -->
+    <div id="resetSection" class="card auth-container hidden">
+        <h3>Enter OTP & New Password</h3>
+        <form id="resetForm">
+            <div class="form-group">
+                <label>6-Digit OTP Code</label>
+                <input type="text" id="resetCode" placeholder="123456" required>
+            </div>
+            <div class="form-group">
+                <label>New Password</label>
+                <input type="password" id="newPasswordInput" placeholder="••••••••" required>
+            </div>
+            <button type="submit" class="btn-primary">Update Password</button>
         </form>
     </div>
 
-    <!-- MFA Box -->
-    <div id="mfaSection" class="card hidden">
-        <h3>Telegram 2FA Verification</h3>
-        <p>Enter the 6-digit verification code sent to your Telegram Bot.</p>
+    <!-- 4. MFA 2FA SECTION -->
+    <div id="mfaSection" class="card auth-container hidden">
+        <h3>Telegram 2FA Security</h3>
+        <p style="font-size: 14px; color: var(--text-muted);">Enter the 6-digit verification code sent to your Telegram Bot.</p>
         <form id="mfaForm">
-            <input type="text" id="mfaCode" placeholder="6-digit OTP Code" required>
-            <button type="submit">Verify & Login</button>
+            <div class="form-group">
+                <label>6-Digit Code</label>
+                <input type="text" id="mfaCode" placeholder="6-digit code" required>
+            </div>
+            <button type="submit" class="btn-primary">Verify & Proceed</button>
         </form>
     </div>
 
-    <!-- Main Dashboard -->
+    <!-- 5. MAIN DASHBOARD -->
     <div id="dashboard" class="hidden">
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('newRequest')">New Request</button>
+            <button class="tab-btn active" onclick="switchTab('newRequest')">Submit Request</button>
             <button class="tab-btn" onclick="switchTab('requestList')">Request History</button>
             <button id="userMgmtTab" class="tab-btn hidden" onclick="switchTab('userMgmt')">User Management (PoLP)</button>
+            <button class="tab-btn" onclick="logout()" style="margin-left: auto; background: #fee2e2; color: var(--danger);">Logout</button>
         </div>
 
         <!-- Submit Request Tab -->
         <div id="newRequest" class="tab-content card">
-            <h3>Submit Request</h3>
+            <h3>Create New Request (Car / Gate Pass / General)</h3>
             <form id="requestForm">
-                <input type="text" id="reqTitle" placeholder="Request Title" required>
+                <div class="form-group">
+                    <label>Request Title</label>
+                    <input type="text" id="reqTitle" placeholder="Brief subject (e.g. Office Car to Yangon)" required>
+                </div>
                 
-                <label><small>Category:</small></label>
-                <select id="reqCategory" onchange="handleCategoryChange()">
-                    <option value="Car Request">Car Request</option>
-                    <option value="Gate Pass">Gate Pass</option>
-                    <option value="Purchase">Purchase Request</option>
-                    <option value="General">General Request</option>
-                </select>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="reqCategory" onchange="handleCategoryChange()">
+                        <option value="Car Request">Car Request</option>
+                        <option value="Gate Pass">Gate Pass</option>
+                        <option value="Purchase">Purchase Request</option>
+                        <option value="General">General Request</option>
+                    </select>
+                </div>
 
                 <!-- Dynamic Form Fields -->
-                <div id="dynamicFields"></div>
+                <div id="dynamicFields" style="display: flex; flex-direction: column; gap: 15px;"></div>
 
-                <label><small>Target Approval Department:</small></label>
-                <select id="reqTargetDept">
-                    <option value="General">General</option>
-                    <option value="IT">IT Department</option>
-                    <option value="Admin">Admin Department</option>
-                    <option value="HR">HR Department</option>
-                    <option value="Executive Management">Executive Management</option>
-                </select>
+                <div class="form-group">
+                    <label>Target Approval Department</label>
+                    <select id="reqTargetDept">
+                        <option value="General">General</option>
+                        <option value="IT">IT Department</option>
+                        <option value="Admin">Admin Department</option>
+                        <option value="HR">HR Department</option>
+                        <option value="Executive Management">Executive Management</option>
+                    </select>
+                </div>
 
-                <textarea id="reqDesc" placeholder="Description / Justification" rows="3"></textarea>
-                <button type="submit">Submit Request</button>
+                <div class="form-group">
+                    <label>Description / Justification</label>
+                    <textarea id="reqDesc" rows="3" placeholder="Provide details..."></textarea>
+                </div>
+
+                <button type="submit" class="btn-primary">Submit Request</button>
             </form>
         </div>
 
         <!-- Request List Tab -->
         <div id="requestList" class="tab-content card hidden">
-            <h3>Request Records & Approvals</h3>
+            <h3>Request Records & Approval Status</h3>
             <table>
                 <thead>
                     <tr>
@@ -211,37 +366,41 @@
             </table>
         </div>
 
-        <!-- User Management Tab -->
+        <!-- User Management Tab (Super Admin / Admin) -->
         <div id="userMgmt" class="tab-content card hidden">
-            <h3>PoLP & Temporary Access Elevation</h3>
+            <h3>PoLP & Access Control Management</h3>
             
-            <h4>Create New User (Telegram Username)</h4>
-            <form id="createUserForm">
-                <input type="text" id="regName" placeholder="Full Name" required>
-                <input type="text" id="regTelegram" placeholder="Telegram Username (e.g. john_doe)" required>
-                <input type="password" id="regPassword" placeholder="Password" required>
-                <select id="regDept">
-                    <option value="HR">HR</option>
-                    <option value="Finance">Finance</option>
-                    <option value="IT">IT</option>
-                    <option value="Admin">Admin</option>
-                    <option value="Warehouse">Warehouse</option>
-                </select>
-                <select id="regRole">
-                    <option value="STAFF">Staff</option>
-                    <option value="MANAGER">Manager</option>
-                    <option value="ADMIN">Admin</option>
-                </select>
-                <button type="submit">Register User</button>
-            </form>
+            <div style="background: #f8fafc; padding: 15px; border-radius: var(--radius); margin-bottom: 20px; border: 1px solid #e2e8f0;">
+                <h4 style="margin-top:0; color: var(--primary);">Register New User</h4>
+                <form id="createUserForm">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <input type="text" id="regName" placeholder="Full Name" required>
+                        <input type="text" id="regTelegram" placeholder="Telegram Username (e.g. john_doe)" required>
+                        <input type="password" id="regPassword" placeholder="Password" required>
+                        <select id="regDept">
+                            <option value="HR">HR</option>
+                            <option value="Finance">Finance</option>
+                            <option value="IT">IT</option>
+                            <option value="Admin">Admin</option>
+                            <option value="Warehouse">Warehouse</option>
+                        </select>
+                        <select id="regRole">
+                            <option value="STAFF">Staff</option>
+                            <option value="MANAGER">Manager</option>
+                            <option value="ADMIN">Admin</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn-primary" style="margin-top: 15px;">Create Account</button>
+                </form>
+            </div>
 
-            <h4>Existing Users</h4>
+            <h4>Existing System Users</h4>
             <table>
                 <thead>
                     <tr>
                         <th>Name</th>
                         <th>Telegram @</th>
-                        <th>Dept</th>
+                        <th>Department</th>
                         <th>Role</th>
                         <th>Actions</th>
                     </tr>
@@ -255,8 +414,16 @@
 <script>
     let currentUser = null;
     let pendingMfaUserId = null;
+    let pendingResetUserId = null;
 
-    // Login Form Handler
+    function showSection(sectionId) {
+        ['loginSection', 'forgotSection', 'resetSection', 'mfaSection', 'dashboard'].forEach(id => {
+            document.getElementById(id).classList.add('hidden');
+        });
+        document.getElementById(sectionId).classList.remove('hidden');
+    }
+
+    // Login Form
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const loginKey = document.getElementById('loginKey').value;
@@ -272,8 +439,7 @@
         if (res.ok) {
             if (data.requiresMfa) {
                 pendingMfaUserId = data.userId;
-                document.getElementById('loginSection').classList.add('hidden');
-                document.getElementById('mfaSection').classList.remove('hidden');
+                showSection('mfaSection');
             } else {
                 setupUserSession(data.user);
             }
@@ -282,7 +448,7 @@
         }
     });
 
-    // MFA Form Handler
+    // MFA Verify
     document.getElementById('mfaForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const code = document.getElementById('mfaCode').value;
@@ -295,8 +461,49 @@
         const data = await res.json();
 
         if (res.ok) {
-            document.getElementById('mfaSection').classList.add('hidden');
             setupUserSession(data.user);
+        } else {
+            alert(data.error);
+        }
+    });
+
+    // Forgot Password Request
+    document.getElementById('forgotForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const telegramUsername = document.getElementById('forgotUsername').value;
+
+        const res = await fetch('/api/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telegramUsername })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            pendingResetUserId = data.userId;
+            alert(data.message);
+            showSection('resetSection');
+        } else {
+            alert(data.error);
+        }
+    });
+
+    // Reset Password Confirm
+    document.getElementById('resetForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const code = document.getElementById('resetCode').value;
+        const newPassword = document.getElementById('newPasswordInput').value;
+
+        const res = await fetch('/api/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: pendingResetUserId, code, newPassword })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            alert(data.message);
+            showSection('loginSection');
         } else {
             alert(data.error);
         }
@@ -304,8 +511,7 @@
 
     function setupUserSession(user) {
         currentUser = user;
-        document.getElementById('loginSection').classList.add('hidden');
-        document.getElementById('dashboard').classList.remove('hidden');
+        showSection('dashboard');
         document.getElementById('userInfo').innerText = `${user.name} (@${user.telegramId}) | ${user.role}`;
 
         if (['SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
@@ -314,6 +520,12 @@
         }
         handleCategoryChange();
         loadRequests();
+    }
+
+    function logout() {
+        currentUser = null;
+        showSection('loginSection');
+        document.getElementById('loginForm').reset();
     }
 
     function switchTab(tabId) {
@@ -330,13 +542,25 @@
 
         if (cat === 'Car Request') {
             container.innerHTML = `
-                <input type="text" id="fieldDestination" placeholder="Destination" required>
-                <input type="number" id="fieldPassengers" placeholder="Number of Passengers" required>
+                <div class="form-group">
+                    <label>Destination</label>
+                    <input type="text" id="fieldDestination" placeholder="e.g. Head Office / Branch 2" required>
+                </div>
+                <div class="form-group">
+                    <label>Number of Passengers</label>
+                    <input type="number" id="fieldPassengers" placeholder="1" required>
+                </div>
             `;
         } else if (cat === 'Gate Pass') {
             container.innerHTML = `
-                <input type="text" id="fieldItemDetails" placeholder="Item Details / Description" required>
-                <input type="text" id="fieldVehicleNo" placeholder="Vehicle License Plate No." required>
+                <div class="form-group">
+                    <label>Item Details / Description</label>
+                    <input type="text" id="fieldItemDetails" placeholder="e.g. Office Laptops & Equipment" required>
+                </div>
+                <div class="form-group">
+                    <label>Vehicle License Plate No.</label>
+                    <input type="text" id="fieldVehicleNo" placeholder="e.g. 1A-2345" required>
+                </div>
             `;
         }
     }
@@ -377,7 +601,9 @@
         if (res.ok) {
             alert('Request submitted successfully!');
             document.getElementById('requestForm').reset();
+            handleCategoryChange();
             loadRequests();
+            switchTab('requestList');
         }
     });
 
@@ -391,16 +617,18 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>#${r.id}</td>
-                <td>${r.title}</td>
+                <td><b>${r.title}</b></td>
                 <td>${r.category}</td>
                 <td>${r.user ? r.user.name : 'Unknown'}</td>
                 <td>${r.approvalStage}</td>
                 <td><span class="badge badge-${r.status.toLowerCase()}">${r.status}</span></td>
                 <td>
-                    ${currentUser.role !== 'STAFF' && r.userId !== currentUser.id && r.status === 'PENDING' ? `
-                        <button onclick="updateStatus(${r.id}, 'APPROVED')" style="background:var(--success)">Approve</button>
-                        <button onclick="updateStatus(${r.id}, 'REJECTED')" style="background:var(--danger)">Reject</button>
-                    ` : '-'}
+                    <div class="action-btns">
+                        ${currentUser.role !== 'STAFF' && r.userId !== currentUser.id && r.status === 'PENDING' ? `
+                            <button onclick="updateStatus(${r.id}, 'APPROVED')" style="background:var(--success)">Approve</button>
+                            <button onclick="updateStatus(${r.id}, 'REJECTED')" style="background:var(--danger)">Reject</button>
+                        ` : '<span style="color:var(--text-muted); font-size:12px;">-</span>'}
+                    </div>
                 </td>
             `;
             tbody.appendChild(tr);
@@ -408,15 +636,20 @@
     }
 
     async function updateStatus(id, status) {
-        await fetch(`/api/requests/${id}/status`, {
+        const res = await fetch(`/api/requests/${id}/status`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status, userId: currentUser.id })
         });
-        loadRequests();
+        if (res.ok) {
+            loadRequests();
+        } else {
+            const err = await res.json();
+            alert(err.error);
+        }
     }
 
-    // Register New User Handler
+    // Register User
     document.getElementById('createUserForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const payload = {
@@ -456,14 +689,16 @@
                 <td>@${u.telegramId || 'None'}</td>
                 <td>${u.department}</td>
                 <td><b>${u.role}</b></td>
-                <td><button onclick="deleteUser(${u.id})" style="background:var(--danger)">Delete</button></td>
+                <td>
+                    ${u.role !== 'SUPER_ADMIN' ? `<button onclick="deleteUser(${u.id})" style="background:var(--danger); padding:4px 8px; border-radius:4px; border:none; color:white; cursor:pointer;">Delete</button>` : '-'}
+                </td>
             `;
             tbody.appendChild(tr);
         });
     }
 
     async function deleteUser(id) {
-        if (confirm('Delete this user?')) {
+        if (confirm('Are you sure you want to delete this user?')) {
             await fetch(`/api/users/${id}`, { method: 'DELETE' });
             loadUsers();
         }
