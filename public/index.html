@@ -3,98 +3,181 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise Request Management System</title>
+    <title>GBG Request Management System</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary: #1e293b;
-            --accent: #2563eb;
-            --bg: #f8fafc;
-            --card: #ffffff;
-            --text: #0f172a;
+            --bg-main: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-input: #f1f5f9;
+            --accent-primary: #2563eb;
+            --accent-hover: #1d4ed8;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
             --success: #16a34a;
             --danger: #dc2626;
             --warning: #d97706;
+            --radius: 10px;
+        }
+
+        * {
+            box-sizing: border-box;
+            transition: all 0.2s ease;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
             margin: 0;
-            padding: 20px;
+            padding: 30px 15px;
+            min-height: 100vh;
         }
 
         .container {
-            max-width: 1000px;
+            max-width: 1050px;
             margin: 0 auto;
         }
 
+        /* Header */
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: var(--primary);
-            color: white;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            background: var(--bg-card);
+            padding: 20px 28px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            margin-bottom: 25px;
         }
 
+        .header h2 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        #userInfo {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            background: var(--bg-input);
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Cards */
         .card {
-            background: var(--card);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            background: var(--bg-card);
+            padding: 28px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            margin-bottom: 25px;
+        }
+
+        .card h3 {
+            margin-top: 0;
+            font-size: 17px;
+            font-weight: 600;
+            color: var(--text-main);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
             margin-bottom: 20px;
         }
 
+        .auth-card {
+            max-width: 420px;
+            margin: 60px auto;
+        }
+
+        /* Tabs */
         .tabs {
             display: flex;
             gap: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
         }
 
         .tab-btn {
             padding: 10px 20px;
-            border: none;
-            background: #e2e8f0;
+            border: 1px solid var(--border-color);
+            background: var(--bg-card);
+            color: var(--text-muted);
             cursor: pointer;
-            border-radius: 6px;
+            border-radius: 8px;
             font-weight: 600;
-        }
-
-        .tab-btn.active {
-            background: var(--accent);
-            color: white;
-        }
-
-        form {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        input, select, textarea {
-            padding: 10px;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
             font-size: 14px;
         }
 
-        button {
-            padding: 10px 15px;
-            background: var(--accent);
+        .tab-btn:hover {
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        .tab-btn.active {
+            background: var(--accent-primary);
+            color: white;
+            border-color: var(--accent-primary);
+            box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+        }
+
+        /* Forms */
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: -4px;
+        }
+
+        input, select, textarea {
+            padding: 11px 14px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            color: var(--text-main);
+            font-family: inherit;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            background: #ffffff;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+
+        button.btn-submit {
+            padding: 11px 18px;
+            background: var(--accent-primary);
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
+            font-size: 14px;
+            margin-top: 6px;
         }
 
-        button:hover {
-            opacity: 0.9;
+        button.btn-submit:hover {
+            background: var(--accent-hover);
         }
 
+        /* Tables */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -102,25 +185,54 @@
         }
 
         th, td {
+            padding: 12px 14px;
             text-align: left;
-            padding: 10px;
-            border-bottom: 1px solid #e2e8f0;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border-color);
         }
 
         th {
-            background: #f1f5f9;
-        }
-
-        .badge {
-            padding: 4px 8px;
-            border-radius: 4px;
+            background: var(--bg-input);
+            color: var(--text-muted);
+            font-weight: 600;
             font-size: 12px;
-            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        .badge-pending { background: #fef3c7; color: var(--warning); }
-        .badge-approved { background: #dcfce7; color: var(--success); }
-        .badge-rejected { background: #fee2e2; color: var(--danger); }
+        tr:hover td {
+            background: #fafafa;
+        }
+
+        /* Badges */
+        .badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            display: inline-block;
+        }
+
+        .badge-pending { background: #fef3c7; color: var(--warning); border: 1px solid #fde68a; }
+        .badge-approved { background: #dcfce7; color: var(--success); border: 1px solid #bbf7d0; }
+        .badge-rejected { background: #fee2e2; color: var(--danger); border: 1px solid #fecaca; }
+
+        .btn-action {
+            padding: 6px 10px;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .btn-approve { background: var(--success); }
+        .btn-approve:hover { opacity: 0.9; }
+
+        .btn-reject { background: var(--danger); }
+        .btn-reject:hover { opacity: 0.9; }
 
         .hidden { display: none !important; }
     </style>
@@ -134,40 +246,44 @@
     </div>
 
     <!-- Login Box -->
-    <div id="loginSection" class="card">
-        <h3>Login with Telegram Username</h3>
+    <div id="loginSection" class="card auth-card">
+        <h3>System Login</h3>
         <form id="loginForm">
-            <input type="text" id="loginKey" placeholder="Telegram Username (e.g. okeydokey2 or @okeydokey2)" required>
-            <input type="password" id="loginPassword" placeholder="Password" required>
-            <button type="submit">Login</button>
+            <label>Telegram Username</label>
+            <input type="text" id="loginKey" placeholder="e.g. okeydokey2" required>
+            <label>Password</label>
+            <input type="password" id="loginPassword" placeholder="••••••••" required>
+            <button type="submit" class="btn-submit">Login</button>
         </form>
     </div>
 
     <!-- MFA Box -->
-    <div id="mfaSection" class="card hidden">
+    <div id="mfaSection" class="card auth-card hidden">
         <h3>Telegram 2FA Verification</h3>
-        <p>Enter the 6-digit verification code sent to your Telegram Bot.</p>
+        <p style="font-size: 13px; color: var(--text-muted);">Enter the 6-digit code sent to your Telegram Bot.</p>
         <form id="mfaForm">
-            <input type="text" id="mfaCode" placeholder="6-digit OTP Code" required>
-            <button type="submit">Verify & Login</button>
+            <label>Verification Code</label>
+            <input type="text" id="mfaCode" placeholder="123456" required>
+            <button type="submit" class="btn-submit">Verify & Login</button>
         </form>
     </div>
 
-    <!-- Main Dashboard -->
+    <!-- Dashboard -->
     <div id="dashboard" class="hidden">
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('newRequest')">New Request</button>
             <button class="tab-btn" onclick="switchTab('requestList')">Request History</button>
-            <button id="userMgmtTab" class="tab-btn hidden" onclick="switchTab('userMgmt')">User Management (PoLP)</button>
+            <button id="userMgmtTab" class="tab-btn hidden" onclick="switchTab('userMgmt')">User Management</button>
         </div>
 
         <!-- Submit Request Tab -->
         <div id="newRequest" class="tab-content card">
             <h3>Submit Request</h3>
             <form id="requestForm">
-                <input type="text" id="reqTitle" placeholder="Request Title" required>
+                <label>Request Title</label>
+                <input type="text" id="reqTitle" placeholder="Brief subject" required>
                 
-                <label><small>Category:</small></label>
+                <label>Category</label>
                 <select id="reqCategory" onchange="handleCategoryChange()">
                     <option value="Car Request">Car Request</option>
                     <option value="Gate Pass">Gate Pass</option>
@@ -175,10 +291,9 @@
                     <option value="General">General Request</option>
                 </select>
 
-                <!-- Dynamic Form Fields -->
-                <div id="dynamicFields"></div>
+                <div id="dynamicFields" style="display: flex; flex-direction: column; gap: 14px;"></div>
 
-                <label><small>Target Approval Department:</small></label>
+                <label>Target Department</label>
                 <select id="reqTargetDept">
                     <option value="General">General</option>
                     <option value="IT">IT Department</option>
@@ -187,8 +302,10 @@
                     <option value="Executive Management">Executive Management</option>
                 </select>
 
-                <textarea id="reqDesc" placeholder="Description / Justification" rows="3"></textarea>
-                <button type="submit">Submit Request</button>
+                <label>Description / Details</label>
+                <textarea id="reqDesc" placeholder="Enter justification..." rows="3"></textarea>
+                
+                <button type="submit" class="btn-submit">Submit Request</button>
             </form>
         </div>
 
@@ -213,13 +330,18 @@
 
         <!-- User Management Tab -->
         <div id="userMgmt" class="tab-content card hidden">
-            <h3>PoLP & Temporary Access Elevation</h3>
-            
-            <h4>Create New User (Telegram Username)</h4>
+            <h3>User Management</h3>
             <form id="createUserForm">
+                <label>Full Name</label>
                 <input type="text" id="regName" placeholder="Full Name" required>
-                <input type="text" id="regTelegram" placeholder="Telegram Username (e.g. john_doe)" required>
-                <input type="password" id="regPassword" placeholder="Password" required>
+                
+                <label>Telegram Username</label>
+                <input type="text" id="regTelegram" placeholder="e.g. john_doe" required>
+                
+                <label>Password</label>
+                <input type="password" id="regPassword" placeholder="••••••••" required>
+                
+                <label>Department</label>
                 <select id="regDept">
                     <option value="HR">HR</option>
                     <option value="Finance">Finance</option>
@@ -227,15 +349,18 @@
                     <option value="Admin">Admin</option>
                     <option value="Warehouse">Warehouse</option>
                 </select>
+                
+                <label>Role</label>
                 <select id="regRole">
                     <option value="STAFF">Staff</option>
                     <option value="MANAGER">Manager</option>
                     <option value="ADMIN">Admin</option>
                 </select>
-                <button type="submit">Register User</button>
+                
+                <button type="submit" class="btn-submit">Register User</button>
             </form>
 
-            <h4>Existing Users</h4>
+            <h4 style="margin-top: 30px;">System Users</h4>
             <table>
                 <thead>
                     <tr>
@@ -256,7 +381,6 @@
     let currentUser = null;
     let pendingMfaUserId = null;
 
-    // Login Form Handler
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const loginKey = document.getElementById('loginKey').value;
@@ -282,7 +406,6 @@
         }
     });
 
-    // MFA Form Handler
     document.getElementById('mfaForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const code = document.getElementById('mfaCode').value;
@@ -330,18 +453,21 @@
 
         if (cat === 'Car Request') {
             container.innerHTML = `
-                <input type="text" id="fieldDestination" placeholder="Destination" required>
-                <input type="number" id="fieldPassengers" placeholder="Number of Passengers" required>
+                <label>Destination</label>
+                <input type="text" id="fieldDestination" placeholder="e.g. Branch Office 2" required>
+                <label>Number of Passengers</label>
+                <input type="number" id="fieldPassengers" placeholder="1" required>
             `;
         } else if (cat === 'Gate Pass') {
             container.innerHTML = `
-                <input type="text" id="fieldItemDetails" placeholder="Item Details / Description" required>
-                <input type="text" id="fieldVehicleNo" placeholder="Vehicle License Plate No." required>
+                <label>Item Details</label>
+                <input type="text" id="fieldItemDetails" placeholder="e.g. IT Laptops & Gear" required>
+                <label>Vehicle License Plate No.</label>
+                <input type="text" id="fieldVehicleNo" placeholder="e.g. 1A-2345" required>
             `;
         }
     }
 
-    // Submit Request
     document.getElementById('requestForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const cat = document.getElementById('reqCategory').value;
@@ -391,15 +517,15 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>#${r.id}</td>
-                <td>${r.title}</td>
+                <td><b>${r.title}</b></td>
                 <td>${r.category}</td>
                 <td>${r.user ? r.user.name : 'Unknown'}</td>
                 <td>${r.approvalStage}</td>
                 <td><span class="badge badge-${r.status.toLowerCase()}">${r.status}</span></td>
                 <td>
                     ${currentUser.role !== 'STAFF' && r.userId !== currentUser.id && r.status === 'PENDING' ? `
-                        <button onclick="updateStatus(${r.id}, 'APPROVED')" style="background:var(--success)">Approve</button>
-                        <button onclick="updateStatus(${r.id}, 'REJECTED')" style="background:var(--danger)">Reject</button>
+                        <button onclick="updateStatus(${r.id}, 'APPROVED')" class="btn-action btn-approve">Approve</button>
+                        <button onclick="updateStatus(${r.id}, 'REJECTED')" class="btn-action btn-reject">Reject</button>
                     ` : '-'}
                 </td>
             `;
@@ -416,7 +542,6 @@
         loadRequests();
     }
 
-    // Register New User Handler
     document.getElementById('createUserForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const payload = {
@@ -456,7 +581,7 @@
                 <td>@${u.telegramId || 'None'}</td>
                 <td>${u.department}</td>
                 <td><b>${u.role}</b></td>
-                <td><button onclick="deleteUser(${u.id})" style="background:var(--danger)">Delete</button></td>
+                <td><button onclick="deleteUser(${u.id})" class="btn-action btn-reject">Delete</button></td>
             `;
             tbody.appendChild(tr);
         });
