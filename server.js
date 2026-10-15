@@ -76,8 +76,6 @@ async function getChatIdFromUsername(username) {
 async function initSuperAdmin() {
   try {
     const hashedPassword = await bcrypt.hash('085236', 10);
-    let detectedChatId = await getChatIdFromUsername(SUPER_ADMIN_TELE_USERNAME);
-
     const adminData = {
       name: 'Kaung Sett Paing',
       email: 'kaungsettpaing@admin.com',
@@ -93,28 +91,28 @@ async function initSuperAdmin() {
       create: adminData
     });
 
-    console.log(`--> SUPER_ADMIN Ready! Username: @${SUPER_ADMIN_TELE_USERNAME}`);
+    console.log(`--> SUPER_ADMIN Ready! Telegram Username: @${SUPER_ADMIN_TELE_USERNAME}`);
   } catch (err) {
     console.error("Auto Admin Error:", err.message);
   }
 }
 
-// User Registration
+// User Registration via Telegram Username
 app.post('/api/users', async (req, res) => {
   try {
-    const { name, email, password, department, role, telegramUsername } = req.body;
+    const { name, password, department, role, telegramUsername } = req.body;
     
     if (!telegramUsername) {
       return res.status(400).json({ error: "Telegram Username is required." });
     }
 
-    const cleanTelegram = telegramUsername.replace('@', '').trim();
+    const cleanTelegram = telegramUsername.replace('@', '').trim().toLowerCase();
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = await prisma.user.create({
       data: { 
         name, 
-        email: email ? email.trim().toLowerCase() : `${cleanTelegram}@telegram.local`, 
+        email: `${cleanTelegram}@telegram.local`, // dummy email for unique schema constraint
         password: hashedPassword, 
         department: department || "General", 
         role: role || "STAFF",
@@ -128,25 +126,23 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-// Login via Telegram Username or Email
+// Login via Telegram Username
 app.post('/api/login', async (req, res) => {
   try {
     const { loginKey, password } = req.body;
     const cleanKey = loginKey.replace('@', '').trim().toLowerCase();
 
-    // Search by Telegram Username, Email, or Name
     let user = await prisma.user.findFirst({
       where: {
         OR: [
           { telegramId: { equals: cleanKey, mode: 'insensitive' } },
-          { email: { equals: cleanKey, mode: 'insensitive' } },
           { name: { equals: cleanKey, mode: 'insensitive' } }
         ]
       }
     });
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid credentials. User not found." });
+      return res.status(401).json({ error: "Invalid credentials. Telegram Username not found." });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -177,11 +173,10 @@ app.post('/api/login', async (req, res) => {
 
       const sent = await sendTelegramOTP(chatId, code);
       if (sent) {
-        return res.json({ requiresMfa: true, userId: user.id, telegramId: user.telegramId, message: `OTP sent to Telegram @${user.telegramId}` });
+        return res.json({ requiresMfa: true, userId: user.id, message: `OTP sent to Telegram @${user.telegramId}` });
       }
     }
 
-    // Direct Login fallback if Telegram Chat ID is not detected yet
     res.json({ message: "Login successful", user });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -234,7 +229,7 @@ app.patch('/api/users/:id', async (req, res) => {
       data: { 
         role, 
         department,
-        ...(telegramId && { telegramId: telegramId.replace('@', '').trim() }),
+        ...(telegramId && { telegramId: telegramId.replace('@', '').trim().toLowerCase() }),
         ...(accessExpiry && { accessExpiry: new Date(accessExpiry) })
       }
     });

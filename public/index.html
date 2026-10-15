@@ -133,11 +133,11 @@
         <div id="userInfo">Not Logged In</div>
     </div>
 
-    <!-- Login Box -->
+    <!-- Login Box (Telegram Username) -->
     <div id="loginSection" class="card">
         <h3>Login with Telegram Username</h3>
         <form id="loginForm">
-            <input type="text" id="loginKey" placeholder="Telegram Username (e.g. @okeydokey2)" required>
+            <input type="text" id="loginKey" placeholder="Telegram Username (e.g. okeydokey2 or @okeydokey2)" required>
             <input type="password" id="loginPassword" placeholder="Password" required>
             <button type="submit">Login</button>
         </form>
@@ -215,10 +215,10 @@
         <div id="userMgmt" class="tab-content card hidden">
             <h3>PoLP & Temporary Access Elevation</h3>
             
-            <h4>Create New User</h4>
+            <h4>Create New User (Telegram Username)</h4>
             <form id="createUserForm">
                 <input type="text" id="regName" placeholder="Full Name" required>
-                <input type="text" id="regTelegram" placeholder="Telegram Username (e.g. @john_doe)" required>
+                <input type="text" id="regTelegram" placeholder="Telegram Username (e.g. john_doe)" required>
                 <input type="password" id="regPassword" placeholder="Password" required>
                 <select id="regDept">
                     <option value="HR">HR</option>
@@ -306,7 +306,7 @@
         currentUser = user;
         document.getElementById('loginSection').classList.add('hidden');
         document.getElementById('dashboard').classList.remove('hidden');
-        document.getElementById('userInfo').innerText = `${user.name} (@${user.telegramId || 'NoTele'}) | ${user.role}`;
+        document.getElementById('userInfo').innerText = `${user.name} (@${user.telegramId}) | ${user.role}`;
 
         if (['SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
             document.getElementById('userMgmtTab').classList.remove('hidden');
