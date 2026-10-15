@@ -98,34 +98,53 @@ async function initSuperAdmin() {
 }
 
 // User Registration via Telegram Username
-app.post('/api/users', async (req, res) => {
-  try {
-    const { name, password, department, role, telegramUsername } = req.body;
-    
-    if (!telegramUsername) {
-      return res.status(400).json({ error: "Telegram Username is required." });
+app.post('/api/login', async (req, res) => {
+    try {
+        // req.body ထဲမှာ loginKey သို့မဟုတ် username/email ပါလာနိုင်တာကို စစ်ပါတယ်
+        const rawInput = req.body.loginKey || req.body.username || req.body.email || '';
+
+        if (!rawInput || !req.body.password) {
+            return res.status(400).json({ error: 'Username and password are required.' });
+        }
+
+        // rawInput က string ဖြစ်မှ replace ခေါ်ပါတယ် (Error လုံးဝမတက်တော့ပါ)
+        const cleanLoginKey = String(rawInput).replace('@', '').trim();
+
+        // Database ထဲမှာ telegramId သို့မဟုတ် email/name နဲ့ ရှာဖွေခြင်း
+        const user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { telegramId: cleanLoginKey },
+                    { email: cleanLoginKey },
+                    { name: cleanLoginKey }
+                ]
+            }
+        });
+
+        if (!user) {
+            return res.status(401).json({ error: 'User not found.' });
+        }
+
+        const isPasswordValid = await bcrypt.compare(req.body.password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ error: 'Invalid password.' });
+        }
+
+        res.json({
+            requiresMfa: false,
+            user: {
+                id: user.id,
+                name: user.name,
+                telegramId: user.telegramId,
+                role: user.role,
+                department: user.department
+            }
+        });
+    } catch (err) {
+        console.error('Login Error:', err);
+        res.status(500).json({ error: 'Login Error: ' + err.message });
     }
-
-    const cleanTelegram = telegramUsername.replace('@', '').trim().toLowerCase();
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const newUser = await prisma.user.create({
-      data: { 
-        name, 
-        email: `${cleanTelegram}@telegram.local`,
-        password: hashedPassword, 
-        department: department || "General", 
-        role: role || "STAFF",
-        telegramId: cleanTelegram
-      }
-    });
-
-    res.json({ message: "User registered successfully", user: newUser });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
-
 // Login via Telegram Username
 app.post('/api/login', async (req, res) => {
   try {
