@@ -280,7 +280,6 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// Requests API
 app.post('/api/requests', upload.single('attachment'), async (req, res) => {
   try {
     const { title, description, category, userId, targetDepartment, extraFields, isDirectExecutive, requiresItApproval } = req.body;
@@ -305,20 +304,6 @@ app.post('/api/requests', upload.single('attachment'), async (req, res) => {
         extraFields: extraFields || null
       }
     });
-
-    await prisma.auditLog.create({
-      data: {
-        action: 'SUBMITTED',
-        remarks: `Request created under Stage: ${initialStage}`,
-        userId: Number(userId),
-        requestId: newRequest.id
-      }
-    });
-
-    res.json({ message: "Request created successfully", request: newRequest });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
 app.get('/api/requests', async (req, res) => {
