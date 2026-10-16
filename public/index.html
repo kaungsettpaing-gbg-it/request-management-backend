@@ -64,6 +64,8 @@
         .filter-bar input, .filter-bar select { margin: 0; flex: 1; min-width: 160px; }
 
         .dynamic-fields { background: #0f172a; padding: 15px; border-radius: 8px; margin-bottom: 16px; border: 1px dashed var(--border-color); }
+        .conditional-fields { border-left: 2px solid var(--primary); margin: 4px 0 12px; padding: 4px 0 0 12px; }
+        .conditional-fields[hidden] { display: none; }
         .timestamp { font-size: 12px; color: var(--text-muted); font-weight: 600; }
         .stage-badge { background: #312e81; color: #818cf8; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; }
 
@@ -237,6 +239,8 @@
                         <option value="Leave">Leave Request</option>
                         <option value="Maintenance">Maintenance / Repair</option>
                         <option value="Finance">Financial / Budget</option>
+                        <option value="Gate Pass">Gate Pass</option>
+                        <option value="Car Request">Car Request</option>
                         <option value="General">General / Other</option>
                     </select>
 
@@ -276,6 +280,8 @@
                     <option value="Leave">Leave</option>
                     <option value="Maintenance">Maintenance</option>
                     <option value="Finance">Finance</option>
+                    <option value="Gate Pass">Gate Pass</option>
+                    <option value="Car Request">Car Request</option>
                     <option value="General">General</option>
                 </select>
             </div>
@@ -349,9 +355,92 @@
                         '<option value="Medium">Medium</option>' +
                         '<option value="High/Critical">High / Critical</option>' +
                     '</select>';
+            } else if (cat === 'Gate Pass') {
+                container.innerHTML = '<label for="dyn_passType"><small>Gate Pass Type:</small></label>' +
+                    '<select id="dyn_passType" onchange="toggleConditionalFields(\'dyn_passType\', \'dyn_gateVehicleFields\', \'Vehicle\')">' +
+                        '<option value="Material">Material / Equipment</option>' +
+                        '<option value="Vehicle">Vehicle Entry / Exit</option>' +
+                        '<option value="Visitor">Visitor</option>' +
+                    '</select>' +
+                    '<label for="dyn_passHolder"><small>Person / Pass Holder:</small></label>' +
+                    '<input type="text" id="dyn_passHolder" placeholder="Name of person carrying the pass" required>' +
+                    '<label for="dyn_passPurpose"><small>Purpose / Items / Destination:</small></label>' +
+                    '<textarea id="dyn_passPurpose" placeholder="Describe items, destination, or visit purpose" required></textarea>' +
+                    '<label for="dyn_passDate"><small>Expected Pass Date:</small></label>' +
+                    '<input type="date" id="dyn_passDate" required>' +
+                    '<div id="dyn_gateVehicleFields" class="conditional-fields" hidden>' +
+                        '<label for="dyn_gateVehicleType"><small>Vehicle Type:</small></label>' +
+                        '<input type="text" id="dyn_gateVehicleType" placeholder="e.g. Car, van, truck">' +
+                        '<label for="dyn_gateVehicleNumber"><small>Vehicle Registration Number:</small></label>' +
+                        '<input type="text" id="dyn_gateVehicleNumber" placeholder="Vehicle plate number">' +
+                        '<label for="dyn_gateDriverRequired"><small>Driver details available?</small></label>' +
+                        '<select id="dyn_gateDriverRequired" onchange="toggleConditionalFields(\'dyn_gateDriverRequired\', \'dyn_gateDriverFields\', \'Yes\')">' +
+                            '<option value="No">No</option>' +
+                            '<option value="Yes">Yes</option>' +
+                        '</select>' +
+                        '<div id="dyn_gateDriverFields" class="conditional-fields" hidden>' +
+                            '<label for="dyn_gateDriverName"><small>Driver Name:</small></label>' +
+                            '<input type="text" id="dyn_gateDriverName" placeholder="Driver name">' +
+                            '<label for="dyn_gateDriverPhone"><small>Driver Phone:</small></label>' +
+                            '<input type="tel" id="dyn_gateDriverPhone" placeholder="Driver contact number">' +
+                        '</div>' +
+                    '</div>';
+            } else if (cat === 'Car Request') {
+                container.innerHTML = '<label for="dyn_carPurpose"><small>Trip Purpose:</small></label>' +
+                    '<input type="text" id="dyn_carPurpose" placeholder="Reason for requesting a car" required>' +
+                    '<label for="dyn_carDestination"><small>Destination:</small></label>' +
+                    '<input type="text" id="dyn_carDestination" placeholder="Destination / route" required>' +
+                    '<label for="dyn_carDate"><small>Travel Date:</small></label>' +
+                    '<input type="date" id="dyn_carDate" required>' +
+                    '<label for="dyn_carTime"><small>Pickup Time:</small></label>' +
+                    '<input type="time" id="dyn_carTime" required>' +
+                    '<label for="dyn_carPassengers"><small>Number of Passengers:</small></label>' +
+                    '<input type="number" id="dyn_carPassengers" min="1" value="1" required>' +
+                    '<label for="dyn_carVehicleNeeded"><small>Company vehicle required?</small></label>' +
+                    '<select id="dyn_carVehicleNeeded" onchange="toggleConditionalFields(\'dyn_carVehicleNeeded\', \'dyn_carVehicleFields\', \'Yes\')">' +
+                        '<option value="Yes">Yes</option>' +
+                        '<option value="No">No</option>' +
+                    '</select>' +
+                    '<div id="dyn_carVehicleFields" class="conditional-fields">' +
+                        '<label for="dyn_carVehicleType"><small>Preferred Vehicle Type:</small></label>' +
+                        '<select id="dyn_carVehicleType">' +
+                            '<option value="Any suitable vehicle">Any suitable vehicle</option>' +
+                            '<option value="Car">Car</option>' +
+                            '<option value="Van">Van</option>' +
+                            '<option value="Pickup">Pickup</option>' +
+                        '</select>' +
+                    '</div>' +
+                    '<label for="dyn_carDriverNeeded"><small>Company driver required?</small></label>' +
+                    '<select id="dyn_carDriverNeeded" onchange="toggleConditionalFields(\'dyn_carDriverNeeded\', \'dyn_carDriverFields\', \'Yes\')">' +
+                        '<option value="Yes">Yes</option>' +
+                        '<option value="No">No</option>' +
+                    '</select>' +
+                    '<div id="dyn_carDriverFields" class="conditional-fields">' +
+                        '<label for="dyn_carDriverName"><small>Preferred / Assigned Driver (if known):</small></label>' +
+                        '<input type="text" id="dyn_carDriverName" placeholder="Driver name (optional)">' +
+                        '<label for="dyn_carDriverPhone"><small>Driver Contact (if known):</small></label>' +
+                        '<input type="tel" id="dyn_carDriverPhone" placeholder="Driver contact number (optional)">' +
+                    '</div>';
             } else {
                 container.innerHTML = '<small style="color:#94a3b8;">No additional fields required for this category.</small>';
             }
+        }
+
+        function toggleConditionalFields(selectId, fieldsId, showValue) {
+            const selection = document.getElementById(selectId);
+            const fields = document.getElementById(fieldsId);
+            if (!selection || !fields) return;
+            fields.hidden = selection.value !== showValue;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
         }
 
         function updateUI() {
@@ -586,7 +675,8 @@
                 }
 
                 const matchKeyword = (req.title || '').toLowerCase().includes(keyword) || 
-                                     (req.description && req.description.toLowerCase().includes(keyword));
+                                     (req.description && req.description.toLowerCase().includes(keyword)) ||
+                                     (req.extraFields && req.extraFields.toLowerCase().includes(keyword));
                 const matchCategory = categoryFilter === "" || req.category === categoryFilter;
 
                 return isVisible && matchKeyword && matchCategory;
@@ -613,7 +703,9 @@
                 let extraStr = '';
                 try {
                     const extra = req.extraFields ? JSON.parse(req.extraFields) : {};
-                    extraStr = Object.entries(extra).map(([k, v]) => '<b>' + k + ':</b> ' + v).join(' | ');
+                    extraStr = Object.entries(extra)
+                        .map(([key, value]) => '<b>' + escapeHtml(key) + ':</b> ' + escapeHtml(value))
+                        .join(' | ');
                 } catch(e) {}
 
                 let fileLink = req.attachment ? '<br><small>📎 <b>Attachment:</b> <a href="/' + req.attachment + '" target="_blank" style="color: #818cf8;">Download File</a></small>' : '';
@@ -797,6 +889,35 @@
                     } else if (dialogCategory === 'Maintenance') {
                         extraFields.location = document.getElementById('dyn_location')?.value;
                         extraFields.urgency = document.getElementById('dyn_urgency')?.value;
+                    } else if (dialogCategory === 'Gate Pass') {
+                        extraFields.passType = document.getElementById('dyn_passType')?.value;
+                        extraFields.passHolder = document.getElementById('dyn_passHolder')?.value;
+                        extraFields.passPurpose = document.getElementById('dyn_passPurpose')?.value;
+                        extraFields.passDate = document.getElementById('dyn_passDate')?.value;
+                        if (extraFields.passType === 'Vehicle') {
+                            extraFields.vehicleType = document.getElementById('dyn_gateVehicleType')?.value;
+                            extraFields.vehicleNumber = document.getElementById('dyn_gateVehicleNumber')?.value;
+                            extraFields.driverDetailsAvailable = document.getElementById('dyn_gateDriverRequired')?.value;
+                            if (extraFields.driverDetailsAvailable === 'Yes') {
+                                extraFields.driverName = document.getElementById('dyn_gateDriverName')?.value;
+                                extraFields.driverPhone = document.getElementById('dyn_gateDriverPhone')?.value;
+                            }
+                        }
+                    } else if (dialogCategory === 'Car Request') {
+                        extraFields.purpose = document.getElementById('dyn_carPurpose')?.value;
+                        extraFields.destination = document.getElementById('dyn_carDestination')?.value;
+                        extraFields.travelDate = document.getElementById('dyn_carDate')?.value;
+                        extraFields.pickupTime = document.getElementById('dyn_carTime')?.value;
+                        extraFields.passengers = document.getElementById('dyn_carPassengers')?.value;
+                        extraFields.vehicleRequired = document.getElementById('dyn_carVehicleNeeded')?.value;
+                        if (extraFields.vehicleRequired === 'Yes') {
+                            extraFields.vehicleType = document.getElementById('dyn_carVehicleType')?.value;
+                        }
+                        extraFields.driverRequired = document.getElementById('dyn_carDriverNeeded')?.value;
+                        if (extraFields.driverRequired === 'Yes') {
+                            extraFields.driverName = document.getElementById('dyn_carDriverName')?.value;
+                            extraFields.driverPhone = document.getElementById('dyn_carDriverPhone')?.value;
+                        }
                     }
                     formData.append('extraFields', JSON.stringify(extraFields));
 
