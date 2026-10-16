@@ -278,11 +278,12 @@ app.post('/api/users', async (req, res) => {
       return res.status(409).json({ error: 'A user with this email already exists.' });
     }
 
+    const hashedPassword = await hashPassword(password);
     const user = await User.create({
       id: await nextId('users'),
       name: name.trim(),
       email: normalizedEmail,
-      password,
+      password: hashedPassword,
       department: typeof department === 'string' && department.trim() ? department.trim() : 'General',
       telegramId: typeof telegramId === 'string' && telegramId.trim()
         ? (normalizeUsername(telegramId) || null)
