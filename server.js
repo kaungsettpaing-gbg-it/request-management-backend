@@ -134,17 +134,25 @@ app.post('/api/login', async (req, res) => {
 
     const cleanKey = loginKey.trim().replace(/^@+/, '').toLowerCase();
 
-    const matchingLogin = await prisma.user.findFirst({
+    const matchingEmail = await prisma.user.findUnique({
+      where: { email: cleanKey }
+    });
+    const matchingTelegram = matchingEmail || await prisma.user.findFirst({
+      where: { telegramId: cleanKey }
+    });
+    const user = matchingTelegram || (await prisma.user.findMany({
       where: {
         OR: [
-          { email: cleanKey },
-          { telegramId: cleanKey }
+          { email: { not: null } },
+          { telegramId: { not: null } },
+          { name: { not: null } }
         ]
       }
-    });
-    const user = matchingLogin || (await prisma.user.findMany({
-      where: { name: { not: null } }
-    })).find(candidate => candidate.name.trim().toLowerCase() === cleanKey);
+    })).find(candidate =>
+      candidate.email?.trim().toLowerCase() === cleanKey ||
+      candidate.telegramId?.trim().replace(/^@+/, '').toLowerCase() === cleanKey ||
+      candidate.name?.trim().toLowerCase() === cleanKey
+    );
 
     if (!user) {
       return res.status(401).json({ error: "Invalid username or password." });
