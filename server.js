@@ -297,10 +297,44 @@ app.patch('/api/users/:id', async (req, res) => {
 // Delete User
 app.delete('/api/users/:id', async (req, res) => {
   try {
-    await prisma.user.delete({ where: { id: Number(req.params.id) } });
-    res.json({ message: "User deleted successfully" });
+    const userId = Number(req.params.id);
+    if (!Number.isSafeInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: 'A valid user ID is required.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true }
+    });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if (user.role === 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'The Super Admin account cannot be deleted.' });
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      const requests = await transaction.request.findMany({
+        where: { userId },
+        select: { id: true }
+      });
+      const requestIds = requests.map(request => request.id);
+      await transaction.auditLog.deleteMany({
+        where: {
+          OR: [
+            { userId },
+            ...(requestIds.length ? [{ requestId: { in: requestIds } }] : [])
+          ]
+        }
+      });
+      await transaction.request.deleteMany({ where: { userId } });
+      await transaction.user.delete({ where: { id: userId } });
+    });
+
+    return res.json({ message: 'User deleted successfully.' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Delete User Error:', error);
+    return res.status(500).json({ error: 'Failed to delete user.' });
   }
 });
 
