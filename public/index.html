@@ -150,15 +150,7 @@
                                 <option value="Executive Management">Executive Management</option>
                             </select>
 
-                            <label><small>Role Position (Principle of Least Privilege):</small></label>
-                            <select id="regRole">
-                                <option value="STAFF">Staff (Employee)</option>
-                                <option value="ASSISTANT">Assistant / Supervisor</option>
-                                <option value="MANAGER">Department Manager</option>
-                                <option value="DGM">Deputy General Manager (DGM)</option>
-                                <option value="GM">General Manager (GM)</option>
-                                <option value="ADMIN">Administrator</option>
-                            </select>
+                            <small>New accounts start with Staff access. Contact an administrator if your role needs to be changed.</small>
                             <button type="submit" style="width: 100%; background: var(--success); margin-top: 15px;">Create Account</button>
                         </form>
                     </div>
@@ -292,10 +284,18 @@
 
     <script>
         let currentUser = null;
+        let authToken = null;
         let pendingMfaEmail = null;
         let allRequests = [];
         let allUsers = [];
         let currentRequestTab = 'PENDING';
+
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (input, init = {}) => {
+            const headers = new Headers(init.headers || {});
+            if (authToken) headers.set('Authorization', `Bearer ${authToken}`);
+            return nativeFetch(input, { ...init, headers });
+        };
 
         function switchAuthTab(tab) {
             const loginContent = document.getElementById('loginTabContent');
@@ -491,18 +491,36 @@
         }
 
         function logout() {
+            authToken = null;
             currentUser = null;
             updateUI();
         }
 
-        function handleExportAction(selectEl) {
+        async function handleExportAction(selectEl) {
             const val = selectEl.value;
             if (val === 'csv') {
-                window.location.href = '/api/export/requests';
+                try {
+                    const res = await fetch('/api/export/requests');
+                    if (!res.ok) {
+                        const data = await res.json();
+                        alert("Export Error: " + (data.error || "Unable to export requests."));
+                        return;
+                    }
+                    const downloadUrl = URL.createObjectURL(await res.blob());
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.download = 'security_audit_request_report.csv';
+                    link.click();
+                    setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+                } catch (err) {
+                    alert("Export Error: " + err.message);
+                } finally {
+                    selectEl.value = "";
+                }
             } else if (val === 'pdf') {
                 window.print();
+                selectEl.value = "";
             }
-            selectEl.value = "";
         }
 
         async function submitMfaCode() {
@@ -516,6 +534,7 @@
                 const data = await res.json();
                 if (res.ok && data.user) {
                     document.getElementById('mfaModal').style.display = 'none';
+                    authToken = data.token;
                     currentUser = data.user;
                     updateUI();
                     renderDynamicFields();
@@ -734,6 +753,8 @@
                             canAction = true;
                         } else if (req.approvalStage === 'ORIGIN_MGR' && currentUser.role === 'MANAGER' && userDept === currentUser.department) {
                             canAction = true;
+                        } else if (req.approvalStage === 'TARGET_MGR' && currentUser.role === 'MANAGER' && req.targetDepartment === currentUser.department) {
+                            canAction = true;
                         } else if (req.approvalStage === 'EXECUTIVE' && ['GM', 'DGM'].includes(currentUser.role)) {
                             canAction = true;
                         }
@@ -797,14 +818,13 @@
                     const email = document.getElementById('regEmail').value;
                     const password = document.getElementById('regPassword').value;
                     const department = document.getElementById('regDept').value;
-                    const role = document.getElementById('regRole').value;
 
                     if (submitButton) submitButton.disabled = true;
                     try {
                         const res = await fetch('/api/users', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name, email, password, department, role })
+                            body: JSON.stringify({ name, email, password, department })
                         });
                         const data = await res.json();
                         if (!res.ok) {
@@ -843,6 +863,7 @@
                                 pendingMfaEmail = data.email;
                                 document.getElementById('mfaModal').style.display = 'flex';
                             } else if (data.user) {
+                                authToken = data.token;
                                 currentUser = data.user;
                                 updateUI();
                                 renderDynamicFields();
