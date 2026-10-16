@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { authenticate, canApproveRequest, requireRoles } = require('../server');
 const { connectDatabase } = require('../lib/database');
+const { getJwtSecret, hasConfiguredJwtSecret } = require('../lib/jwt-secret');
 
 function responseMock() {
   return {
@@ -31,6 +32,22 @@ test('database connection refuses to start without a MongoDB URI', async () => {
   await assert.rejects(connectDatabase(undefined), {
     message: 'MONGODB_URI is required to connect to the application database.'
   });
+});
+
+test('JWT secret generates a cryptographically strong fallback when missing', () => {
+  const env = {};
+  const secret = getJwtSecret(env);
+
+  assert.equal(Buffer.byteLength(secret, 'utf8') >= 32, true);
+  assert.equal(getJwtSecret(env), secret);
+  assert.equal(hasConfiguredJwtSecret(env), false);
+});
+
+test('JWT secret rejects explicitly configured values shorter than 32 bytes', () => {
+  assert.throws(
+    () => getJwtSecret({ JWT_SECRET: 'too-short' }),
+    /JWT_SECRET must be at least 32 bytes/
+  );
 });
 
 test('protected routes reject malformed bearer tokens', async () => {

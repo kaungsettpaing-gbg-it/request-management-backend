@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
+const { getJwtSecret, hasConfiguredJwtSecret } = require('./lib/jwt-secret');
 const { connectDatabase } = require('./lib/database');
 const { hashPassword, verifyPassword } = require('./lib/user-password');
 const User = require('./models/User');
@@ -65,7 +66,7 @@ function isDuplicateKeyError(error) {
 }
 
 function createAccessToken(userId) {
-  return jwt.sign({ sub: String(userId) }, process.env.JWT_SECRET, { expiresIn: '8h' });
+  return jwt.sign({ sub: String(userId) }, getJwtSecret(), { expiresIn: '8h' });
 }
 
 async function authenticate(req, res, next) {
@@ -75,7 +76,7 @@ async function authenticate(req, res, next) {
 
   let payload;
   try {
-    payload = jwt.verify(match[1], process.env.JWT_SECRET);
+    payload = jwt.verify(match[1], getJwtSecret());
   } catch {
     return res.status(401).json({ error: 'Your session is invalid or expired. Please log in again.' });
   }
@@ -582,9 +583,10 @@ app.get(
 );
 
 async function start() {
-  if (!process.env.JWT_SECRET || Buffer.byteLength(process.env.JWT_SECRET, 'utf8') < 32) {
-    throw new Error('JWT_SECRET must be configured with at least 32 bytes.');
+  if (!hasConfiguredJwtSecret()) {
+    console.warn('JWT_SECRET is not configured. A temporary random secret will be used; all login sessions will expire when this server restarts. Configure a persistent JWT_SECRET for production.');
   }
+  getJwtSecret();
   await connectDatabase(process.env.MONGODB_URI);
   try {
     await Promise.all([User.init(), Request.init(), AuditLog.init()]);

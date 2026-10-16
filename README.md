@@ -1,6 +1,6 @@
 # Request Management Backend
 
-The application stores users, requests, and audit logs in MongoDB through Mongoose. Set `MONGODB_URI` and a random `JWT_SECRET` of at least 32 bytes in the environment before starting the server. Generate a key with `node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"`. Copy `.env.example` to `.env` for local development. Set a unique `SUPER_ADMIN_PASSWORD` (at least 12 characters) when bootstrapping a new database or migrating an existing administrator.
+The application stores users, requests, and audit logs in MongoDB through Mongoose. Set `MONGODB_URI` in the environment before starting the server. For stable login sessions, also set a persistent random `JWT_SECRET` of at least 32 bytes; generate one with `node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"`. If it is omitted, the server generates a temporary secret and warns that login sessions will end when the process restarts. Copy `.env.example` to `.env` for local development. Set a unique `SUPER_ADMIN_PASSWORD` (at least 12 characters) when bootstrapping a new database or migrating an existing administrator.
 
 ```sh
 npm install
