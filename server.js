@@ -3,11 +3,21 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 const app = express();
+const hasStrongJwtSecret = typeof process.env.JWT_SECRET === 'string' &&
+  Buffer.byteLength(process.env.JWT_SECRET, 'utf8') >= 32;
+const jwtSecret = hasStrongJwtSecret
+  ? process.env.JWT_SECRET
+  : crypto.randomBytes(48).toString('base64');
+if (!hasStrongJwtSecret) {
+  console.warn('A persistent JWT_SECRET of at least 32 bytes is not configured. Approval sessions will expire when the server restarts.');
+}
 
 app.use(express.json());
 app.use(cors());
@@ -122,6 +132,22 @@ async function initSuperAdmin() {
     }
 }
 
+async function initializeFinanceApprovalWorkflow() {
+    const result = await prisma.request.updateMany({
+      where: {
+        category: { in: ['Finance', 'Financial', 'Withdrawal'] },
+        status: 'PENDING'
+      },
+      data: {
+        status: 'PENDING_ADMIN_MANAGER',
+        approvalStage: 'PENDING_ADMIN_MANAGER'
+      }
+    });
+    if (result.count > 0) {
+      console.log(`Moved ${result.count} pending financial request(s) to Admin Manager approval.`);
+    }
+}
+
 // Login Endpoint (Fixed Prisma mode error)
 app.post('/api/login', async (req, res) => {
   try {
@@ -165,6 +191,7 @@ app.post('/api/login', async (req, res) => {
 
     res.json({
       requiresMfa: false,
+      token: jwt.sign({ sub: String(user.id) }, jwtSecret, { expiresIn: '8h' }),
       user: {
         id: user.id,
         name: user.name,
@@ -351,9 +378,13 @@ app.post('/api/requests', upload.single('attachment'), async (req, res) => {
   try {
     const { title, description, category, userId, targetDepartment, extraFields, isDirectExecutive, requiresItApproval } = req.body;
     const attachmentPath = req.file ? req.file.path : null;
+    const categoryName = String(category || 'General').trim();
+    const isFinanceRequest = ['FINANCE', 'FINANCIAL', 'WITHDRAWAL'].includes(categoryName.toUpperCase());
 
     let initialStage = "ORIGIN_MGR";
-    if (isDirectExecutive === 'true' || isDirectExecutive === true) {
+    if (isFinanceRequest) {
+      initialStage = 'PENDING_ADMIN_MANAGER';
+    } else if (isDirectExecutive === 'true' || isDirectExecutive === true) {
       initialStage = "EXECUTIVE";
     } else if (targetDepartment === 'IT' || requiresItApproval === 'true' || category === 'Maintenance') {
       initialStage = "MANAGER_AND_IT_DUAL";
@@ -363,7 +394,8 @@ app.post('/api/requests', upload.single('attachment'), async (req, res) => {
       data: {
         title,
         description,
-        category: category || "General",
+        category: categoryName,
+        ...(isFinanceRequest && { status: 'PENDING_ADMIN_MANAGER' }),
         targetDepartment: targetDepartment || "General",
         approvalStage: initialStage,
         userId: Number(userId),
@@ -392,6 +424,124 @@ app.get('/api/requests', async (req, res) => {
   }
 });
 
+function requireApprovalAuthentication(req, res, next) {
+  const authorization = req.get('authorization') || '';
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({ error: 'A valid login session is required.' });
+  }
+  try {
+    const payload = jwt.verify(match[1], jwtSecret);
+    const approverId = Number(payload.sub);
+    if (!Number.isSafeInteger(approverId) || approverId <= 0) {
+      return res.status(401).json({ error: 'A valid login session is required.' });
+    }
+    req.approverId = approverId;
+    return next();
+  } catch {
+    return res.status(401).json({ error: 'Your login session is invalid or expired.' });
+  }
+}
+
+async function handleFinancialApproval(req, res, approvalStep) {
+  try {
+    const requestId = Number(req.params.id);
+    const approverId = req.approverId;
+    const { status, remarks } = req.body || {};
+    if (!Number.isSafeInteger(requestId) || requestId <= 0) {
+      return res.status(400).json({ error: 'A valid request ID is required.' });
+    }
+    if (!['APPROVED', 'REJECTED'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be APPROVED or REJECTED.' });
+    }
+
+    const request = await prisma.request.findUnique({
+      where: { id: requestId },
+      select: {
+        id: true,
+        userId: true,
+        category: true,
+        status: true,
+        adminManagerApprovedBy: true
+      }
+    });
+    if (!request) {
+      return res.status(404).json({ error: 'Request not found.' });
+    }
+    if (!['FINANCE', 'FINANCIAL', 'WITHDRAWAL'].includes(String(request.category).trim().toUpperCase())) {
+      return res.status(400).json({ error: 'This approval workflow is only for financial requests.' });
+    }
+
+    const isAdminStep = approvalStep === 'ADMIN';
+    const expectedStatus = isAdminStep ? 'PENDING_ADMIN_MANAGER' : 'PENDING_FINANCE_MANAGER';
+    const expectedDepartment = isAdminStep ? 'ADMIN' : 'FINANCE';
+    if (request.status !== expectedStatus) {
+      return res.status(409).json({ error: 'This request is not awaiting your approval step.' });
+    }
+
+    const approver = await prisma.user.findUnique({
+      where: { id: approverId },
+      select: { id: true, role: true, department: true }
+    });
+    if (!approver || approver.role !== 'MANAGER' ||
+        String(approver.department || '').trim().toUpperCase() !== expectedDepartment) {
+      return res.status(403).json({ error: `Only the ${isAdminStep ? 'Admin' : 'Finance'} Department Manager can act at this step.` });
+    }
+    if (request.userId === approver.id) {
+      return res.status(403).json({ error: 'You cannot approve or reject your own request.' });
+    }
+    if (!isAdminStep && request.adminManagerApprovedBy === approver.id) {
+      return res.status(403).json({ error: 'The same manager cannot approve both workflow steps.' });
+    }
+
+    const nextStatus = status === 'REJECTED'
+      ? 'REJECTED'
+      : isAdminStep ? 'PENDING_FINANCE_MANAGER' : 'APPROVED';
+    const nextStage = nextStatus === 'APPROVED' ? 'COMPLETED' : nextStatus;
+    const approvalField = isAdminStep
+      ? { adminManagerApprovedBy: status === 'APPROVED' ? approver.id : null }
+      : { financeManagerApprovedBy: status === 'APPROVED' ? approver.id : null };
+    const action = `${isAdminStep ? 'ADMIN_MANAGER' : 'FINANCE_MANAGER'}_${status}`;
+
+    const updatedRequest = await prisma.$transaction(async transaction => {
+      const updated = await transaction.request.updateMany({
+        where: { id: requestId, status: expectedStatus },
+        data: { ...approvalField, status: nextStatus, approvalStage: nextStage }
+      });
+      if (updated.count !== 1) {
+        throw new Error('This request has already been updated. Refresh and try again.');
+      }
+      await transaction.auditLog.create({
+        data: {
+          action,
+          remarks: typeof remarks === 'string' && remarks.trim()
+            ? remarks.trim()
+            : `${status === 'APPROVED' ? 'Approved' : 'Rejected'} at the ${isAdminStep ? 'Admin' : 'Finance'} Manager step.`,
+          userId: approver.id,
+          requestId
+        }
+      });
+      return transaction.request.findUnique({ where: { id: requestId } });
+    });
+
+    return res.json({ message: 'Financial request approval updated.', request: updatedRequest });
+  } catch (error) {
+    if (error.message === 'This request has already been updated. Refresh and try again.') {
+      return res.status(409).json({ error: error.message });
+    }
+    console.error('Financial Approval Error:', error);
+    return res.status(500).json({ error: 'Unable to update financial request approval.' });
+  }
+}
+
+app.patch('/api/requests/:id/admin-approval', requireApprovalAuthentication, (req, res) =>
+  handleFinancialApproval(req, res, 'ADMIN')
+);
+
+app.patch('/api/requests/:id/finance-approval', requireApprovalAuthentication, (req, res) =>
+  handleFinancialApproval(req, res, 'FINANCE')
+);
+
 app.patch('/api/requests/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
@@ -403,6 +553,10 @@ app.patch('/api/requests/:id/status', async (req, res) => {
     });
 
     if (!request) return res.status(404).json({ error: "Request not found" });
+
+    if (['FINANCE', 'FINANCIAL', 'WITHDRAWAL'].includes(String(request.category).trim().toUpperCase())) {
+      return res.status(400).json({ error: 'Financial requests must use their department-specific approval action.' });
+    }
 
     if (request.userId === Number(userId)) {
       return res.status(403).json({ error: "SoD Restriction: You cannot approve/reject your own request." });
@@ -477,6 +631,7 @@ app.get('/api/export/requests', async (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', async () => {
   try {
+    await initializeFinanceApprovalWorkflow();
     await initSuperAdmin();
     console.log(`🚀 Server is running on port ${PORT}`);
   } catch (err) {

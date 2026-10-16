@@ -52,6 +52,7 @@
         .request-header { display: flex; justify-content: space-between; align-items: flex-start; }
 
         .status-PENDING { color: var(--warning); font-weight: bold; }
+        .status-PENDING_ADMIN_MANAGER, .status-PENDING_FINANCE_MANAGER { color: var(--warning); font-weight: bold; }
         .status-APPROVED { color: var(--success); font-weight: bold; }
         .status-REJECTED { color: var(--danger); font-weight: bold; }
         .btn-approve { background: var(--success); margin-right: 8px; }
@@ -239,6 +240,7 @@
                         <option value="Leave">Leave Request</option>
                         <option value="Maintenance">Maintenance / Repair</option>
                         <option value="Finance">Financial / Budget</option>
+                        <option value="Withdrawal">Financial Withdrawal</option>
                         <option value="Gate Pass">Gate Pass</option>
                         <option value="Car Request">Car Request</option>
                         <option value="General">General / Other</option>
@@ -280,6 +282,7 @@
                     <option value="Leave">Leave</option>
                     <option value="Maintenance">Maintenance</option>
                     <option value="Finance">Finance</option>
+                    <option value="Withdrawal">Withdrawal</option>
                     <option value="Gate Pass">Gate Pass</option>
                     <option value="Car Request">Car Request</option>
                     <option value="General">General</option>
@@ -292,6 +295,7 @@
 
     <script>
         let currentUser = null;
+        let sessionToken = null;
         let pendingMfaEmail = null;
         let allRequests = [];
         let allUsers = [];
@@ -316,6 +320,10 @@
             }
         }
 
+        function isFinanceWorkflowRequest(request) {
+            return ['FINANCE', 'FINANCIAL', 'WITHDRAWAL'].includes(String(request.category || '').trim().toUpperCase());
+        }
+
         function switchRequestTab(status) {
             currentRequestTab = status;
             document.querySelectorAll('.req-tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -337,6 +345,9 @@
                     '<input type="number" id="dyn_amount" placeholder="e.g. 500000 or 1000000" required>' +
                     '<label><small>Quantity / Items:</small></label>' +
                     '<input type="text" id="dyn_quantity" placeholder="e.g. 2 Laptops" required>';
+            } else if (cat === 'Finance' || cat === 'Withdrawal') {
+                container.innerHTML = '<label><small>Requested Amount ($ / MMK):</small></label>' +
+                    '<input type="number" id="dyn_amount" min="0.01" step="0.01" placeholder="Enter amount" required>';
             } else if (cat === 'Leave') {
                 container.innerHTML = '<label><small>Leave Type:</small></label>' +
                     '<select id="dyn_leaveType">' +
@@ -492,6 +503,7 @@
 
         function logout() {
             currentUser = null;
+            sessionToken = null;
             updateUI();
         }
 
@@ -517,6 +529,7 @@
                 if (res.ok && data.user) {
                     document.getElementById('mfaModal').style.display = 'none';
                     currentUser = data.user;
+                    sessionToken = data.token || null;
                     updateUI();
                     renderDynamicFields();
                     loadRequests();
@@ -640,7 +653,9 @@
         function updateAnalytics(requests) {
             if (!Array.isArray(requests)) return;
             document.getElementById('statTotal').innerText = requests.length;
-            document.getElementById('statPending').innerText = requests.filter(r => r.status === 'PENDING').length;
+            document.getElementById('statPending').innerText = requests.filter(r =>
+                ['PENDING', 'PENDING_ADMIN_MANAGER', 'PENDING_FINANCE_MANAGER'].includes(r.status)
+            ).length;
             document.getElementById('statApproved').innerText = requests.filter(r => r.status === 'APPROVED').length;
             document.getElementById('statRejected').innerText = requests.filter(r => r.status === 'REJECTED').length;
         }
@@ -651,7 +666,8 @@
             const categoryFilter = document.getElementById('filterCategory')?.value || '';
 
             const filtered = allRequests.filter(req => {
-                if (currentRequestTab === 'PENDING' && req.status !== 'PENDING') return false;
+                if (currentRequestTab === 'PENDING' &&
+                    !['PENDING', 'PENDING_ADMIN_MANAGER', 'PENDING_FINANCE_MANAGER'].includes(req.status)) return false;
                 if (currentRequestTab === 'APPROVED' && req.status !== 'APPROVED') return false;
                 if (currentRequestTab === 'REJECTED' && req.status !== 'REJECTED') return false;
 
@@ -663,7 +679,13 @@
                 } else if (currentUser.role === 'STAFF') {
                     isVisible = req.userId === currentUser.id;
                 } else if (['MANAGER', 'ASSISTANT'].includes(currentUser.role)) {
-                    if (req.approvalStage === 'ORIGIN_MGR' || req.approvalStage === 'MANAGER_AND_IT_DUAL') {
+                    if (isFinanceWorkflowRequest(req)) {
+                        const isAssignedFinanceStage =
+                            currentUser.role === 'MANAGER' &&
+                            ((req.status === 'PENDING_ADMIN_MANAGER' && currentUser.department === 'Admin') ||
+                            (req.status === 'PENDING_FINANCE_MANAGER' && currentUser.department === 'Finance'));
+                        isVisible = req.userId === currentUser.id || isAssignedFinanceStage;
+                    } else if (req.approvalStage === 'ORIGIN_MGR' || req.approvalStage === 'MANAGER_AND_IT_DUAL') {
                         isVisible = originDept === currentUser.department || req.userId === currentUser.id;
                     } else if (req.approvalStage === 'IT_MGR_PENDING') {
                         isVisible = currentUser.department === 'IT' || originDept === currentUser.department;
@@ -723,7 +745,19 @@
                 }
 
                 let canAction = false;
-                if (req.status === 'PENDING' && currentUser) {
+                let approvalStep = null;
+                if (currentUser && isFinanceWorkflowRequest(req) && req.userId !== currentUser.id) {
+                    if (req.status === 'PENDING_ADMIN_MANAGER' &&
+                        currentUser.role === 'MANAGER' && currentUser.department === 'Admin') {
+                        canAction = true;
+                        approvalStep = 'admin';
+                    } else if (req.status === 'PENDING_FINANCE_MANAGER' &&
+                        currentUser.role === 'MANAGER' && currentUser.department === 'Finance' &&
+                        req.adminManagerApprovedBy !== currentUser.id) {
+                        canAction = true;
+                        approvalStep = 'finance';
+                    }
+                } else if (req.status === 'PENDING' && currentUser) {
                     // SoD check: Cannot approve own request
                     if (req.userId !== currentUser.id) {
                         if (['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)) {
@@ -743,8 +777,8 @@
                 let actionButtons = '';
                 if (canAction) {
                     actionButtons = '<div>' +
-                        '<button type="button" class="btn-approve" onclick="updateStatus(' + req.id + ', \'APPROVED\')">Approve</button>' +
-                        '<button type="button" class="btn-reject" onclick="updateStatus(' + req.id + ', \'REJECTED\')">Reject</button>' +
+                        '<button type="button" class="btn-approve" onclick="updateStatus(' + req.id + ', \'APPROVED\', ' + (approvalStep ? '\'' + approvalStep + '\'' : 'null') + ')">Approve</button>' +
+                        '<button type="button" class="btn-reject" onclick="updateStatus(' + req.id + ', \'REJECTED\', ' + (approvalStep ? '\'' + approvalStep + '\'' : 'null') + ')">Reject</button>' +
                     '</div>';
                 }
 
@@ -766,12 +800,18 @@
             });
         }
 
-        async function updateStatus(id, status) {
+        async function updateStatus(id, status, approvalStep) {
             const remarks = prompt(`Enter optional audit remarks for ${status}:`);
             try {
-                const res = await fetch('/api/requests/' + id + '/status', {
+                const endpoint = approvalStep
+                    ? `/api/requests/${id}/${approvalStep}-approval`
+                    : `/api/requests/${id}/status`;
+                const res = await fetch(endpoint, {
                     method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(approvalStep && sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {})
+                    },
                     body: JSON.stringify({ status, userId: currentUser.id, remarks })
                 });
                 const data = await res.json();
@@ -844,6 +884,7 @@
                                 document.getElementById('mfaModal').style.display = 'flex';
                             } else if (data.user) {
                                 currentUser = data.user;
+                                sessionToken = data.token || null;
                                 updateUI();
                                 renderDynamicFields();
                                 loadRequests();
@@ -864,17 +905,16 @@
                     
                     const formData = new FormData();
                     formData.append('title', document.getElementById('title').value);
-                    
+                    const dialogCategory = document.getElementById('category').value;
                     let targetDept = currentUser.department;
-                    if (currentUser.role !== 'STAFF') {
+                    if (['Finance', 'Withdrawal'].includes(dialogCategory)) {
+                        targetDept = 'Finance';
+                    } else if (currentUser.role !== 'STAFF') {
                         targetDept = document.getElementById('targetDepartment').value;
                     }
                     formData.append('targetDepartment', targetDept);
-                    
                     formData.append('isDirectExecutive', document.getElementById('isDirectExecutive')?.checked || false);
                     formData.append('requiresItApproval', document.getElementById('requiresItApproval')?.checked || false);
-
-                    const dialogCategory = document.getElementById('category').value;
                     formData.append('category', dialogCategory);
                     formData.append('description', document.getElementById('description').value);
                     formData.append('userId', currentUser.id);
@@ -883,6 +923,8 @@
                     if (dialogCategory === 'Purchase') {
                         extraFields.amount = document.getElementById('dyn_amount')?.value;
                         extraFields.quantity = document.getElementById('dyn_quantity')?.value;
+                    } else if (dialogCategory === 'Finance' || dialogCategory === 'Withdrawal') {
+                        extraFields.amount = document.getElementById('dyn_amount')?.value;
                     } else if (dialogCategory === 'Leave') {
                         extraFields.leaveType = document.getElementById('dyn_leaveType')?.value;
                         extraFields.days = document.getElementById('dyn_days')?.value;

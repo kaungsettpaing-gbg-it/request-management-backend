@@ -23,20 +23,22 @@ model User {
 }
 
 model Request {
-  id               Int        @id @default(autoincrement())
-  title            String
-  description      String?
-  category         String     @default("General")
-  status           String     @default("PENDING") // PENDING, APPROVED, REJECTED
-  targetDepartment String?    @default("General") // Cross-Department Request Target
-  approvalStage    String?    @default("DEPT_MGR") // DEPT_MGR -> DGM -> GM -> COMPLETED
-  extraFields      String?
-  attachment       String?
-  userId           Int
-  user             User       @relation(fields: [userId], references: [id])
-  auditLogs        AuditLog[]
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @default(now()) @updatedAt
+  id                       Int        @id @default(autoincrement())
+  title                    String
+  description              String?
+  category                 String     @default("General")
+  status                   String     @default("PENDING") // PENDING, PENDING_ADMIN_MANAGER, PENDING_FINANCE_MANAGER, APPROVED, REJECTED
+  targetDepartment         String?    @default("General") // Cross-Department Request Target
+  approvalStage            String?    @default("DEPT_MGR") // DEPT_MGR -> DGM -> GM -> COMPLETED
+  adminManagerApprovedBy   Int?
+  financeManagerApprovedBy Int?
+  extraFields              String?
+  attachment               String?
+  userId                   Int
+  user                     User       @relation(fields: [userId], references: [id])
+  auditLogs                AuditLog[]
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @default(now()) @updatedAt
 }
 
 model AuditLog {
