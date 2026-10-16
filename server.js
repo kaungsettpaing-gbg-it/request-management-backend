@@ -124,32 +124,34 @@ async function initSuperAdmin() {
 // Login Endpoint (Fixed Prisma mode error)
 app.post('/api/login', async (req, res) => {
   try {
-    const loginKey = req.body.loginKey || req.body.username || req.body.email || '';
-    const password = req.body.password;
+    const loginKey = req.body?.loginKey ?? req.body?.username ?? req.body?.email;
+    const password = req.body?.password;
 
-    if (!loginKey || !password) {
+    if (typeof loginKey !== 'string' || !loginKey.trim() || typeof password !== 'string' || !password.length) {
       return res.status(400).json({ error: "Username and password are required." });
     }
 
-    const cleanKey = String(loginKey).replace(/^@+/, '').trim().toLowerCase();
+    const cleanKey = loginKey.trim().replace(/^@+/, '').toLowerCase();
 
-    let user = await prisma.user.findFirst({
+    const matchingLogin = await prisma.user.findFirst({
       where: {
         OR: [
           { email: cleanKey },
-          { telegramId: cleanKey },
-          { name: cleanKey }
+          { telegramId: cleanKey }
         ]
       }
     });
+    const user = matchingLogin || (await prisma.user.findMany({
+      where: { name: { not: null } }
+    })).find(candidate => candidate.name.trim().toLowerCase() === cleanKey);
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid credentials. User not found." });
+      return res.status(401).json({ error: "Invalid username or password." });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch && password !== user.password) {
-      return res.status(401).json({ error: "Invalid credentials. Wrong password." });
+      return res.status(401).json({ error: "Invalid username or password." });
     }
 
     res.json({
@@ -196,13 +198,15 @@ app.post('/api/verify-mfa', async (req, res) => {
 // Create User API
 app.post('/api/users', async (req, res) => {
   try {
-    const { name, email, password, department, role, telegramId } = req.body;
+    const { name, email, password, department, role, telegramId } = req.body || {};
 
-    if (!name || !email || !password) {
+    if (typeof name !== 'string' || !name.trim() ||
+        typeof email !== 'string' || !email.trim() ||
+        typeof password !== 'string' || !password.length) {
       return res.status(400).json({ error: 'Name, email, and password are required.' });
     }
 
-    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedEmail = email.trim().toLowerCase();
     const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (existingUser) {
@@ -212,12 +216,14 @@ app.post('/api/users', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await prisma.user.create({
       data: {
-        name: String(name).trim(),
+        name: name.trim(),
         email: normalizedEmail,
         password: hashedPassword,
         department: department || 'General',
         role: role || 'STAFF',
-        telegramId: telegramId ? String(telegramId).replace(/^@+/, '').trim().toLowerCase() : null
+        telegramId: typeof telegramId === 'string' && telegramId.trim()
+          ? telegramId.replace(/^@+/, '').trim().toLowerCase()
+          : null
       }
     });
 

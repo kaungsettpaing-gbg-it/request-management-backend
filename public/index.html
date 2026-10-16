@@ -696,12 +696,48 @@
         document.addEventListener('DOMContentLoaded', () => {
             renderDynamicFields();
 
+            const userForm = document.getElementById('userForm');
+            if (userForm) {
+                userForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const submitButton = userForm.querySelector('button[type="submit"]');
+                    const name = document.getElementById('regName').value;
+                    const email = document.getElementById('regEmail').value;
+                    const password = document.getElementById('regPassword').value;
+                    const department = document.getElementById('regDept').value;
+                    const role = document.getElementById('regRole').value;
+
+                    if (submitButton) submitButton.disabled = true;
+                    try {
+                        const res = await fetch('/api/users', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name, email, password, department, role })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                            alert("Registration Error: " + (data.error || "Unable to create account."));
+                            return;
+                        }
+
+                        alert("Account created successfully. You can now log in.");
+                        userForm.reset();
+                        switchAuthTab('login');
+                        document.getElementById('loginEmail').value = email.trim();
+                    } catch (err) {
+                        alert("Registration Error: " + err.message);
+                    } finally {
+                        if (submitButton) submitButton.disabled = false;
+                    }
+                });
+            }
+
             const loginForm = document.getElementById('loginForm');
             if (loginForm) {
                 loginForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
                     const email = document.getElementById('loginEmail').value.trim();
-                    const password = document.getElementById('loginPassword').value.trim();
+                    const password = document.getElementById('loginPassword').value;
 
                     try {
                         const res = await fetch('/api/login', {
