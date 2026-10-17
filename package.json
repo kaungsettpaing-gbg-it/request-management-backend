@@ -4,9 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "postinstall": "npx prisma generate",
+    "postinstall": "prisma generate",
     "prestart": "node -e \"try { require('./lib/database-url').assertPostgresDatabaseUrl(process.env.DATABASE_URL); } catch (error) { console.error(error.message); process.exit(1); }\"",
-    "start": "npx prisma db push && node server.js",
+    "start": "prisma db push && node server.js",
     "build": "npx prisma generate",
     "test": "node --test test/approval-workflow.test.js"
   },
