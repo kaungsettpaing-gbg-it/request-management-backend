@@ -105,3 +105,19 @@ test('completed requests are not visible in another manager’s approval queue',
 
   assert.equal(canUserSeeRequest(request, { id: 2, role: 'MANAGER', department: 'Finance' }), false);
 });
+
+test('processed requests remain visible to the approver who handled a step', () => {
+  const request = {
+    id: 10,
+    userId: 1,
+    status: 'APPROVED',
+    currentApprovalStep: 2,
+    approvalSteps: [
+      { sequence: 0, status: 'APPROVED', approvedById: 2 },
+      { sequence: 1, status: 'APPROVED', approvedById: 3 }
+    ]
+  };
+
+  assert.equal(canUserSeeRequest(request, { id: 2, role: 'MANAGER', department: 'Admin' }), true);
+  assert.equal(canUserSeeRequest(request, { id: 4, role: 'MANAGER', department: 'Finance' }), false);
+});

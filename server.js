@@ -540,6 +540,14 @@ app.get('/api/requests', requireApprovalAuthentication, async (req, res) => {
       const assignedRequestIds = [...new Set(assignedSteps.map(step => step.requestId))];
       visibilityWhere.OR = [
         { userId: actor.id },
+        {
+          approvalSteps: {
+            some: {
+              approvedById: actor.id,
+              status: { in: ['APPROVED', 'REJECTED'] }
+            }
+          }
+        },
         ...(assignedRequestIds.length ? [{ id: { in: assignedRequestIds } }] : [])
       ];
     }
@@ -604,6 +612,11 @@ app.get('/api/requests', requireApprovalAuthentication, async (req, res) => {
 
 function canUserSeeRequest(request, actor) {
   if (['ADMIN', 'SUPER_ADMIN'].includes(actor.role) || request.userId === actor.id) {
+    return true;
+  }
+  if (request.approvalSteps.some(step =>
+    step.approvedById === actor.id && ['APPROVED', 'REJECTED'].includes(step.status)
+  )) {
     return true;
   }
   if (request.status !== 'PENDING') return false;
