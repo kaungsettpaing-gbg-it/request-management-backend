@@ -6,7 +6,15 @@ const fs = require('fs');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
+
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL must be configured before the server can start.');
+}
+if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL.startsWith('file:/')) {
+  throw new Error('Production DATABASE_URL must use an absolute SQLite path on a persistent mounted volume.');
+}
 
 const prisma = new PrismaClient();
 const app = express();
@@ -132,20 +140,84 @@ async function initSuperAdmin() {
     }
 }
 
-async function initializeFinanceApprovalWorkflow() {
-    const result = await prisma.request.updateMany({
-      where: {
-        category: { in: ['Finance', 'Financial', 'Withdrawal'] },
-        status: 'PENDING'
-      },
+function buildApprovalChain(originDepartment, targetDepartment) {
+  const departments = [];
+  for (const [index, department] of [originDepartment, targetDepartment].entries()) {
+    if (typeof department !== 'string' || !department.trim()) continue;
+    const normalizedDepartment = department.trim();
+    if (index === 1 && normalizedDepartment.toLowerCase() === 'general') continue;
+    if (!departments.some(existing => existing.toLowerCase() === normalizedDepartment.toLowerCase())) {
+      departments.push(normalizedDepartment);
+    }
+  }
+
+  return [
+    ...departments.map(department => ({
+      stepType: 'DEPARTMENT',
+      department,
+      approverRole: 'MANAGER',
+      stage: `PENDING_${department.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MANAGER`
+    })),
+    {
+      stepType: 'EXECUTIVE',
+      department: null,
+      approverRole: 'EXECUTIVE',
+      stage: 'PENDING_EXECUTIVE'
+    }
+  ].map((step, sequence) => ({ ...step, sequence }));
+}
+
+function getApprovalTransition(status, currentStep, nextStep) {
+  if (status === 'REJECTED') {
+    return {
+      status: 'REJECTED',
+      approvalStage: 'REJECTED',
+      currentApprovalStep: currentStep.sequence
+    };
+  }
+  if (!nextStep) {
+    return {
+      status: 'APPROVED',
+      approvalStage: 'COMPLETED',
+      currentApprovalStep: currentStep.sequence + 1
+    };
+  }
+  return {
+    status: 'PENDING',
+    approvalStage: nextStep.stepType === 'EXECUTIVE'
+      ? 'PENDING_EXECUTIVE'
+      : `PENDING_${nextStep.department.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MANAGER`,
+    currentApprovalStep: nextStep.sequence
+  };
+}
+
+async function initializeApprovalChains() {
+  const uninitializedRequests = await prisma.request.findMany({
+    where: {
+      status: { in: ['PENDING', 'PENDING_ADMIN_MANAGER', 'PENDING_FINANCE_MANAGER'] },
+      approvalSteps: { none: {} }
+    },
+    include: { user: true }
+  });
+
+  for (const request of uninitializedRequests) {
+    const chain = buildApprovalChain(request.user.department, request.targetDepartment);
+    await prisma.request.update({
+      where: { id: request.id },
       data: {
-        status: 'PENDING_ADMIN_MANAGER',
-        approvalStage: 'PENDING_ADMIN_MANAGER'
+        status: 'PENDING',
+        currentApprovalStep: 0,
+        approvalStage: chain[0].stage,
+        approvalSteps: {
+          create: chain.map(({ stage, ...step }) => step)
+        }
       }
     });
-    if (result.count > 0) {
-      console.log(`Moved ${result.count} pending financial request(s) to Admin Manager approval.`);
-    }
+  }
+
+  if (uninitializedRequests.length > 0) {
+    console.log(`Initialized approval chains for ${uninitializedRequests.length} pending request(s).`);
+  }
 }
 
 // Login Endpoint (Fixed Prisma mode error)
@@ -374,55 +446,161 @@ app.delete('/api/users/:id', async (req, res) => {
 });
 
 // Create Request API
-app.post('/api/requests', upload.single('attachment'), async (req, res) => {
+app.post('/api/requests', requireApprovalAuthentication, upload.single('attachment'), async (req, res) => {
   try {
-    const { title, description, category, userId, targetDepartment, extraFields, isDirectExecutive, requiresItApproval } = req.body;
+    const { title, description, category, targetDepartment, extraFields } = req.body;
     const attachmentPath = req.file ? req.file.path : null;
     const categoryName = String(category || 'General').trim();
-    const isFinanceRequest = ['FINANCE', 'FINANCIAL', 'WITHDRAWAL'].includes(categoryName.toUpperCase());
-
-    let initialStage = "ORIGIN_MGR";
-    if (isFinanceRequest) {
-      initialStage = 'PENDING_ADMIN_MANAGER';
-    } else if (isDirectExecutive === 'true' || isDirectExecutive === true) {
-      initialStage = "EXECUTIVE";
-    } else if (targetDepartment === 'IT' || requiresItApproval === 'true' || category === 'Maintenance') {
-      initialStage = "MANAGER_AND_IT_DUAL";
+    const requestUserId = req.approverId;
+    const originUser = await prisma.user.findUnique({
+      where: { id: requestUserId },
+      select: { id: true, department: true }
+    });
+    if (!originUser) {
+      return res.status(401).json({ error: 'The account for this session no longer exists.' });
     }
+    if (typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ error: 'A request title is required.' });
+    }
+
+    const originDepartment = originUser.department || targetDepartment || 'General';
+    const requestTargetDepartment = targetDepartment || originUser.department || 'General';
+    const chain = buildApprovalChain(originDepartment, requestTargetDepartment);
 
     const newRequest = await prisma.request.create({
       data: {
-        title,
+        title: title.trim(),
         description,
         category: categoryName,
-        ...(isFinanceRequest && { status: 'PENDING_ADMIN_MANAGER' }),
-        targetDepartment: targetDepartment || "General",
-        approvalStage: initialStage,
-        userId: Number(userId),
+        targetDepartment: requestTargetDepartment,
+        approvalStage: chain[0].stage,
+        currentApprovalStep: 0,
+        userId: requestUserId,
         attachment: attachmentPath,
-        extraFields: extraFields || null
-      }
+        extraFields: extraFields || null,
+        approvalSteps: {
+          create: chain.map(({ stage, ...step }) => step)
+        }
+      },
+      include: { approvalSteps: { orderBy: { sequence: 'asc' } } }
     });
-    res.json(newRequest);
+    return res.status(201).json(newRequest);
   } catch (error) {
+    console.error('Create Request Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get('/api/requests', async (req, res) => {
+app.get('/api/requests', requireApprovalAuthentication, async (req, res) => {
   try {
-    const requests = await prisma.request.findMany({
-      include: {
-        user: true,
-        auditLogs: { include: { user: true }, orderBy: { createdAt: 'desc' } }
-      },
-      orderBy: { createdAt: 'desc' }
+    const actor = await prisma.user.findUnique({
+      where: { id: req.approverId },
+      select: { id: true, role: true, department: true }
     });
-    res.json(requests);
+    if (!actor) {
+      return res.status(401).json({ error: 'The account for this session no longer exists.' });
+    }
+
+    const visibilityWhere = {};
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(actor.role)) {
+      const approvalStage = actor.role === 'MANAGER' && actor.department
+        ? `PENDING_${actor.department.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MANAGER`
+        : 'PENDING_EXECUTIVE';
+      const assignedStepWhere = {
+        status: 'PENDING',
+        approverRole: ['GM', 'DGM'].includes(actor.role) ? 'EXECUTIVE' : 'MANAGER',
+        request: { is: { status: 'PENDING', approvalStage } }
+      };
+      if (actor.role === 'MANAGER') {
+        assignedStepWhere.department = actor.department;
+      }
+      const assignedSteps = ['MANAGER', 'GM', 'DGM'].includes(actor.role)
+        ? await prisma.requestApprovalStep.findMany({
+          where: assignedStepWhere,
+          select: { requestId: true }
+        })
+        : [];
+      const assignedRequestIds = [...new Set(assignedSteps.map(step => step.requestId))];
+      visibilityWhere.OR = [
+        { userId: actor.id },
+        ...(assignedRequestIds.length ? [{ id: { in: assignedRequestIds } }] : [])
+      ];
+    }
+
+    const filters = [];
+    const status = String(req.query.status || '').trim().toUpperCase();
+    if (status) {
+      if (!['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid request status filter.' });
+      }
+      filters.push({ status });
+    }
+    const category = String(req.query.category || '').trim();
+    if (category) {
+      filters.push({ category });
+    }
+    const search = String(req.query.search || '').trim().slice(0, 200);
+    if (search) {
+      filters.push({
+        OR: [
+          { title: { contains: search } },
+          { description: { contains: search } },
+          { extraFields: { contains: search } }
+        ]
+      });
+    }
+    const where = { AND: [visibilityWhere, ...filters] };
+    const [requests, statusCounts] = await Promise.all([
+      prisma.request.findMany({
+        where,
+        include: {
+          user: { select: { id: true, name: true, department: true, role: true } },
+          auditLogs: {
+            include: { user: { select: { id: true, name: true, role: true } } },
+            orderBy: { createdAt: 'desc' }
+          },
+          approvalSteps: {
+            include: { approvedBy: { select: { id: true, name: true, role: true } } },
+            orderBy: { sequence: 'asc' }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.request.groupBy({
+        by: ['status'],
+        where: visibilityWhere,
+        _count: { _all: true }
+      })
+    ]);
+    const counts = { PENDING: 0, APPROVED: 0, REJECTED: 0 };
+    for (const item of statusCounts) {
+      if (Object.prototype.hasOwnProperty.call(counts, item.status)) {
+        counts[item.status] = item._count._all;
+      }
+    }
+    return res.json({ requests, counts });
   } catch (error) {
+    console.error('Get Requests Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
+function canUserSeeRequest(request, actor) {
+  if (['ADMIN', 'SUPER_ADMIN'].includes(actor.role) || request.userId === actor.id) {
+    return true;
+  }
+  if (request.status !== 'PENDING') return false;
+  const currentStep = request.approvalSteps.find(
+    step => step.sequence === request.currentApprovalStep && step.status === 'PENDING'
+  );
+  if (!currentStep) return false;
+  if (currentStep.approverRole === 'EXECUTIVE') {
+    return ['GM', 'DGM'].includes(actor.role);
+  }
+  return actor.role === 'MANAGER' &&
+    String(actor.department || '').trim().toLowerCase() ===
+      String(currentStep.department || '').trim().toLowerCase();
+}
 
 function requireApprovalAuthentication(req, res, next) {
   const authorization = req.get('authorization') || '';
@@ -443,7 +621,7 @@ function requireApprovalAuthentication(req, res, next) {
   }
 }
 
-async function handleFinancialApproval(req, res, approvalStep) {
+async function handleRequestApproval(req, res) {
   try {
     const requestId = Number(req.params.id);
     const approverId = req.approverId;
@@ -460,53 +638,82 @@ async function handleFinancialApproval(req, res, approvalStep) {
       select: {
         id: true,
         userId: true,
-        category: true,
         status: true,
-        adminManagerApprovedBy: true
+        currentApprovalStep: true,
+        approvalSteps: {
+          orderBy: { sequence: 'asc' }
+        }
       }
     });
     if (!request) {
       return res.status(404).json({ error: 'Request not found.' });
     }
-    if (!['FINANCE', 'FINANCIAL', 'WITHDRAWAL'].includes(String(request.category).trim().toUpperCase())) {
-      return res.status(400).json({ error: 'This approval workflow is only for financial requests.' });
-    }
-
-    const isAdminStep = approvalStep === 'ADMIN';
-    const expectedStatus = isAdminStep ? 'PENDING_ADMIN_MANAGER' : 'PENDING_FINANCE_MANAGER';
-    const expectedDepartment = isAdminStep ? 'ADMIN' : 'FINANCE';
-    if (request.status !== expectedStatus) {
-      return res.status(409).json({ error: 'This request is not awaiting your approval step.' });
+    if (request.status !== 'PENDING') {
+      return res.status(409).json({ error: 'This request is no longer awaiting approval.' });
     }
 
     const approver = await prisma.user.findUnique({
       where: { id: approverId },
       select: { id: true, role: true, department: true }
     });
-    if (!approver || approver.role !== 'MANAGER' ||
-        String(approver.department || '').trim().toUpperCase() !== expectedDepartment) {
-      return res.status(403).json({ error: `Only the ${isAdminStep ? 'Admin' : 'Finance'} Department Manager can act at this step.` });
+    if (!approver || !['MANAGER', 'GM', 'DGM'].includes(approver.role)) {
+      return res.status(403).json({ error: 'Your account is not assigned to an approval role.' });
     }
     if (request.userId === approver.id) {
       return res.status(403).json({ error: 'You cannot approve or reject your own request.' });
     }
-    if (!isAdminStep && request.adminManagerApprovedBy === approver.id) {
-      return res.status(403).json({ error: 'The same manager cannot approve both workflow steps.' });
+
+    const currentStep = request.approvalSteps.find(step => step.sequence === request.currentApprovalStep);
+    if (!currentStep || currentStep.status !== 'PENDING') {
+      return res.status(409).json({ error: 'The current approval step is unavailable. Refresh and try again.' });
     }
 
-    const nextStatus = status === 'REJECTED'
-      ? 'REJECTED'
-      : isAdminStep ? 'PENDING_FINANCE_MANAGER' : 'APPROVED';
-    const nextStage = nextStatus === 'APPROVED' ? 'COMPLETED' : nextStatus;
-    const approvalField = isAdminStep
-      ? { adminManagerApprovedBy: status === 'APPROVED' ? approver.id : null }
-      : { financeManagerApprovedBy: status === 'APPROVED' ? approver.id : null };
-    const action = `${isAdminStep ? 'ADMIN_MANAGER' : 'FINANCE_MANAGER'}_${status}`;
+    const isAssignedApprover = currentStep.approverRole === 'EXECUTIVE'
+      ? ['GM', 'DGM'].includes(approver.role)
+      : approver.role === 'MANAGER' &&
+        String(approver.department || '').trim().toLowerCase() ===
+          String(currentStep.department || '').trim().toLowerCase();
+    if (!isAssignedApprover) {
+      return res.status(403).json({ error: 'Your role or department does not match the current approval step.' });
+    }
+
+    const previousSteps = request.approvalSteps.filter(step => step.sequence < currentStep.sequence);
+    if (previousSteps.some(step => step.approvedById === approver.id)) {
+      return res.status(403).json({ error: 'You cannot approve the same request at multiple steps.' });
+    }
+
+    const nextStep = request.approvalSteps.find(step => step.sequence === currentStep.sequence + 1);
+    const transition = getApprovalTransition(status, currentStep, nextStep);
+    const action = `${currentStep.approverRole}_${status}`;
 
     const updatedRequest = await prisma.$transaction(async transaction => {
+      const updatedStep = await transaction.requestApprovalStep.updateMany({
+        where: { id: currentStep.id, status: 'PENDING' },
+        data: {
+          status,
+          approvedById: approver.id,
+          remarks: typeof remarks === 'string' && remarks.trim() ? remarks.trim() : null,
+          actedAt: new Date()
+        }
+      });
+      if (updatedStep.count !== 1) {
+        throw new Error('This request has already been updated. Refresh and try again.');
+      }
+      if (status === 'REJECTED') {
+        await transaction.requestApprovalStep.updateMany({
+          where: { requestId, sequence: { gt: currentStep.sequence }, status: 'PENDING' },
+          data: { status: 'SKIPPED' }
+        });
+      }
       const updated = await transaction.request.updateMany({
-        where: { id: requestId, status: expectedStatus },
-        data: { ...approvalField, status: nextStatus, approvalStage: nextStage }
+        where: {
+          id: requestId,
+          status: 'PENDING',
+          currentApprovalStep: currentStep.sequence
+        },
+        data: {
+          ...transition
+        }
       });
       if (updated.count !== 1) {
         throw new Error('This request has already been updated. Refresh and try again.');
@@ -516,104 +723,49 @@ async function handleFinancialApproval(req, res, approvalStep) {
           action,
           remarks: typeof remarks === 'string' && remarks.trim()
             ? remarks.trim()
-            : `${status === 'APPROVED' ? 'Approved' : 'Rejected'} at the ${isAdminStep ? 'Admin' : 'Finance'} Manager step.`,
+            : `${status === 'APPROVED' ? 'Approved' : 'Rejected'} at ${currentStep.department || 'Final Executive'} approval step.`,
           userId: approver.id,
           requestId
         }
       });
-      return transaction.request.findUnique({ where: { id: requestId } });
+      return transaction.request.findUnique({
+        where: { id: requestId },
+        include: { approvalSteps: { orderBy: { sequence: 'asc' } } }
+      });
     });
 
-    return res.json({ message: 'Financial request approval updated.', request: updatedRequest });
+    return res.json({ message: 'Request approval updated.', request: updatedRequest });
   } catch (error) {
     if (error.message === 'This request has already been updated. Refresh and try again.') {
       return res.status(409).json({ error: error.message });
     }
-    console.error('Financial Approval Error:', error);
-    return res.status(500).json({ error: 'Unable to update financial request approval.' });
+    console.error('Request Approval Error:', error);
+    return res.status(500).json({ error: 'Unable to update request approval.' });
   }
 }
 
-app.patch('/api/requests/:id/admin-approval', requireApprovalAuthentication, (req, res) =>
-  handleFinancialApproval(req, res, 'ADMIN')
-);
+app.patch('/api/requests/:id/approval', requireApprovalAuthentication, handleRequestApproval);
 
-app.patch('/api/requests/:id/finance-approval', requireApprovalAuthentication, (req, res) =>
-  handleFinancialApproval(req, res, 'FINANCE')
-);
+app.patch('/api/requests/:id/status', requireApprovalAuthentication, handleRequestApproval);
 
-app.patch('/api/requests/:id/status', async (req, res) => {
+app.get('/api/export/requests', requireApprovalAuthentication, async (req, res) => {
   try {
-    const { id } = req.params;
-    const { status, userId, remarks } = req.body;
-
-    const request = await prisma.request.findUnique({
-      where: { id: Number(id) },
-      include: { user: true }
+    const actor = await prisma.user.findUnique({
+      where: { id: req.approverId },
+      select: { id: true, role: true, department: true }
     });
-
-    if (!request) return res.status(404).json({ error: "Request not found" });
-
-    if (['FINANCE', 'FINANCIAL', 'WITHDRAWAL'].includes(String(request.category).trim().toUpperCase())) {
-      return res.status(400).json({ error: 'Financial requests must use their department-specific approval action.' });
+    if (!actor) {
+      return res.status(401).json({ error: 'The account for this session no longer exists.' });
     }
-
-    if (request.userId === Number(userId)) {
-      return res.status(403).json({ error: "SoD Restriction: You cannot approve/reject your own request." });
-    }
-
-    let nextStage = request.approvalStage;
-    let finalStatus = request.status;
-
-    if (status === 'REJECTED') {
-      finalStatus = 'REJECTED';
-      nextStage = 'REJECTED';
-    } else if (status === 'APPROVED') {
-      if (request.approvalStage === 'MANAGER_AND_IT_DUAL') {
-        nextStage = 'IT_MGR_PENDING';
-      } else if (request.approvalStage === 'IT_MGR_PENDING') {
-        nextStage = 'COMPLETED';
-        finalStatus = 'APPROVED';
-      } else if (request.approvalStage === 'ORIGIN_MGR') {
-        if (request.targetDepartment && request.targetDepartment !== request.user.department) {
-          nextStage = 'TARGET_MGR';
-        } else {
-          nextStage = 'COMPLETED';
-          finalStatus = 'APPROVED';
-        }
-      } else if (request.approvalStage === 'TARGET_MGR' || request.approvalStage === 'EXECUTIVE') {
-        nextStage = 'COMPLETED';
-        finalStatus = 'APPROVED';
-      }
-    }
-
-    const updatedRequest = await prisma.request.update({
-      where: { id: Number(id) },
-      data: { status: finalStatus, approvalStage: nextStage }
+    const requests = await prisma.request.findMany({
+      include: {
+        user: { select: { id: true, name: true, department: true, role: true } },
+        approvalSteps: true
+      },
+      orderBy: { createdAt: 'desc' }
     });
-
-    if (userId) {
-      await prisma.auditLog.create({
-        data: {
-          action: status,
-          remarks: remarks || `Status changed to ${status} (Stage: ${nextStage})`,
-          userId: Number(userId),
-          requestId: Number(id)
-        }
-      });
-    }
-
-    res.json({ message: "Approval status updated", request: updatedRequest });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/export/requests', async (req, res) => {
-  try {
-    const requests = await prisma.request.findMany({ include: { user: true }, orderBy: { createdAt: 'desc' } });
     let csv = 'ID,Title,Category,Target Dept,Stage,Status,Description,Submitted By,Sender Dept,Role,Date\n';
-    requests.forEach(r => {
+    requests.filter(request => canUserSeeRequest(request, actor)).forEach(r => {
       const userName = r.user ? r.user.name : 'Unknown';
       const userDept = r.user ? r.user.department : 'N/A';
       const userRole = r.user ? r.user.role : 'N/A';
@@ -629,12 +781,21 @@ app.get('/api/export/requests', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', async () => {
-  try {
-    await initializeFinanceApprovalWorkflow();
-    await initSuperAdmin();
-    console.log(`🚀 Server is running on port ${PORT}`);
-  } catch (err) {
-    console.error("Auto Admin Init Error:", err);
-  }
-});
+
+function start() {
+  return app.listen(PORT, '0.0.0.0', async () => {
+    try {
+      await initializeApprovalChains();
+      await initSuperAdmin();
+      console.log(`🚀 Server is running on port ${PORT}`);
+    } catch (err) {
+      console.error("Auto Admin Init Error:", err);
+    }
+  });
+}
+
+if (require.main === module) {
+  start();
+}
+
+module.exports = { app, start, buildApprovalChain, getApprovalTransition, canUserSeeRequest };

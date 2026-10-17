@@ -4,41 +4,65 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id         Int        @id @default(autoincrement())
-  email      String     @unique
-  password   String
-  name       String?
-  department String?
-  role       String     @default("USER")
-  telegramId String?
-  otp        String?
-  otpExpiry  DateTime?
-  createdAt  DateTime   @default(now())
-  requests   Request[]
-  auditLogs  AuditLog[]
+  id            Int                   @id @default(autoincrement())
+  email         String                @unique
+  password      String
+  name          String?
+  department    String?
+  role          String                @default("USER")
+  telegramId    String?
+  otp           String?
+  otpExpiry     DateTime?
+  createdAt     DateTime              @default(now())
+  requests      Request[]
+  auditLogs     AuditLog[]
+  approvalSteps RequestApprovalStep[] @relation("RequestStepApprover")
 }
 
 model Request {
-  id                       Int        @id @default(autoincrement())
+  id                       Int                   @id @default(autoincrement())
   title                    String
   description              String?
-  category                 String     @default("General")
-  status                   String     @default("PENDING") // PENDING, PENDING_ADMIN_MANAGER, PENDING_FINANCE_MANAGER, APPROVED, REJECTED
-  targetDepartment         String?    @default("General") // Cross-Department Request Target
-  approvalStage            String?    @default("DEPT_MGR") // DEPT_MGR -> DGM -> GM -> COMPLETED
+  category                 String                @default("General")
+  status                   String                @default("PENDING")
+  targetDepartment         String?               @default("General") // Cross-Department Request Target
+  approvalStage            String?               @default("PENDING")
+  currentApprovalStep      Int                   @default(0)
   adminManagerApprovedBy   Int?
   financeManagerApprovedBy Int?
   extraFields              String?
   attachment               String?
   userId                   Int
-  user                     User       @relation(fields: [userId], references: [id])
+  user                     User                  @relation(fields: [userId], references: [id])
   auditLogs                AuditLog[]
-  createdAt                DateTime   @default(now())
-  updatedAt                DateTime   @default(now()) @updatedAt
+  approvalSteps            RequestApprovalStep[]
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @default(now()) @updatedAt
+
+  @@index([status, currentApprovalStep])
+}
+
+model RequestApprovalStep {
+  id           Int       @id @default(autoincrement())
+  requestId    Int
+  sequence     Int
+  stepType     String
+  department   String?
+  approverRole String
+  status       String    @default("PENDING")
+  approvedById Int?
+  remarks      String?
+  actedAt      DateTime?
+  createdAt    DateTime  @default(now())
+  request      Request   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  approvedBy   User?     @relation("RequestStepApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@unique([requestId, sequence])
+  @@index([department, approverRole, status])
 }
 
 model AuditLog {

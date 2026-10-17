@@ -52,7 +52,6 @@
         .request-header { display: flex; justify-content: space-between; align-items: flex-start; }
 
         .status-PENDING { color: var(--warning); font-weight: bold; }
-        .status-PENDING_ADMIN_MANAGER, .status-PENDING_FINANCE_MANAGER { color: var(--warning); font-weight: bold; }
         .status-APPROVED { color: var(--success); font-weight: bold; }
         .status-REJECTED { color: var(--danger); font-weight: bold; }
         .btn-approve { background: var(--success); margin-right: 8px; }
@@ -223,16 +222,7 @@
                         </select>
                     </div>
 
-                    <div style="margin: 10px 0; background: rgba(245,158,11,0.1); border: 1px solid var(--warning); padding: 12px; border-radius: 8px;">
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; color: var(--warning); margin: 0;">
-                            <input type="checkbox" id="isDirectExecutive" style="width: auto; margin: 0;"> 
-                            ⚠️ High-Value Case (Requires GM/DGM Approval)
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; color: #818cf8; margin-top: 8px;">
-                            <input type="checkbox" id="requiresItApproval" style="width: auto; margin: 0;"> 
-                            💻 Requires Manager + IT Dual Approval (Manager & IT Dual Workflow)
-                        </label>
-                    </div>
+                    <p style="color: var(--text-muted); font-size: 13px;">Requests route through the requesting department manager, the target department manager when different, and then a GM or DGM.</p>
 
                     <label><small>Select Category:</small></label>
                     <select id="category" name="category" onchange="renderDynamicFields()">
@@ -297,9 +287,8 @@
         let currentUser = null;
         let sessionToken = null;
         let pendingMfaEmail = null;
-        let allRequests = [];
-        let allUsers = [];
         let currentRequestTab = 'PENDING';
+        let requestLoadId = 0;
 
         function switchAuthTab(tab) {
             const loginContent = document.getElementById('loginTabContent');
@@ -318,10 +307,6 @@
                 if (registerBtn) registerBtn.classList.add('active');
                 if (loginBtn) loginBtn.classList.remove('active');
             }
-        }
-
-        function isFinanceWorkflowRequest(request) {
-            return ['FINANCE', 'FINANCIAL', 'WITHDRAWAL'].includes(String(request.category || '').trim().toUpperCase());
         }
 
         function switchRequestTab(status) {
@@ -507,10 +492,27 @@
             updateUI();
         }
 
-        function handleExportAction(selectEl) {
+        async function handleExportAction(selectEl) {
             const val = selectEl.value;
             if (val === 'csv') {
-                window.location.href = '/api/export/requests';
+                try {
+                    const response = await fetch('/api/export/requests', {
+                        headers: { Authorization: `Bearer ${sessionToken}` }
+                    });
+                    if (!response.ok) {
+                        const data = await response.json();
+                        alert("Export Error: " + (data.error || "Unable to export requests."));
+                    } else {
+                        const url = URL.createObjectURL(await response.blob());
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = 'security_audit_request_report.csv';
+                        link.click();
+                        URL.revokeObjectURL(url);
+                    }
+                } catch (error) {
+                    alert("Export Error: " + error.message);
+                }
             } else if (val === 'pdf') {
                 window.print();
             }
@@ -545,23 +547,28 @@
             try {
                 const res = await fetch('/api/users');
                 const data = await res.json();
-                allUsers = Array.isArray(data) ? data : [];
-                renderUserTable();
+                if (!res.ok) throw new Error(data.error || 'Failed to load users.');
+                if (!Array.isArray(data)) throw new Error('The server returned an invalid user list.');
+                renderUserTable(data);
             } catch(err) {
                 console.error("Load users error:", err);
-                allUsers = [];
-                renderUserTable();
+                const tbody = document.getElementById('userTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '';
+                    const row = tbody.insertRow();
+                    const cell = row.insertCell();
+                    cell.colSpan = 6;
+                    cell.textContent = 'Unable to load users: ' + err.message;
+                }
             }
         }
 
-        function renderUserTable() {
+        function renderUserTable(users) {
             const tbody = document.getElementById('userTableBody');
             if (!tbody) return;
             tbody.innerHTML = '';
 
-            if (!Array.isArray(allUsers)) return;
-
-            allUsers.forEach(u => {
+            users.forEach(u => {
                 const expiryVal = u.accessExpiry ? new Date(u.accessExpiry).toISOString().slice(0,10) : '';
                 tbody.innerHTML += `<tr>
                     <td><b>${u.name}</b></td>
@@ -638,74 +645,53 @@
             }
         }
 
-        async function loadRequests() {
+        function loadRequests() {
+            return filterRequests();
+        }
+
+        function updateAnalytics(counts) {
+            if (!counts) return;
+            document.getElementById('statTotal').innerText =
+                counts.PENDING + counts.APPROVED + counts.REJECTED;
+            document.getElementById('statPending').innerText = counts.PENDING;
+            document.getElementById('statApproved').innerText = counts.APPROVED;
+            document.getElementById('statRejected').innerText = counts.REJECTED;
+        }
+
+        async function filterRequests() {
+            if (!currentUser) return;
+            const loadId = ++requestLoadId;
+            const params = new URLSearchParams({ status: currentRequestTab });
+            const search = document.getElementById('searchKeyword')?.value || '';
+            const category = document.getElementById('filterCategory')?.value || '';
+            if (search.trim()) params.set('search', search.trim());
+            if (category) params.set('category', category);
+
             try {
-                const res = await fetch('/api/requests');
-                allRequests = await res.json();
-                allRequests.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-                updateAnalytics(allRequests);
-                filterRequests();
+                const res = await fetch('/api/requests?' + params.toString(), {
+                    headers: { Authorization: 'Bearer ' + sessionToken }
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed to load requests.');
+                if (loadId !== requestLoadId) return;
+                if (!Array.isArray(data.requests) || !data.counts) {
+                    throw new Error('The server returned an invalid request list.');
+                }
+                updateAnalytics(data.counts);
+                renderRequests(data.requests);
             } catch(err) {
                 console.error(err);
-            }
-        }
-
-        function updateAnalytics(requests) {
-            if (!Array.isArray(requests)) return;
-            document.getElementById('statTotal').innerText = requests.length;
-            document.getElementById('statPending').innerText = requests.filter(r =>
-                ['PENDING', 'PENDING_ADMIN_MANAGER', 'PENDING_FINANCE_MANAGER'].includes(r.status)
-            ).length;
-            document.getElementById('statApproved').innerText = requests.filter(r => r.status === 'APPROVED').length;
-            document.getElementById('statRejected').innerText = requests.filter(r => r.status === 'REJECTED').length;
-        }
-
-        function filterRequests() {
-            if (!Array.isArray(allRequests)) return;
-            const keyword = (document.getElementById('searchKeyword')?.value || '').toLowerCase();
-            const categoryFilter = document.getElementById('filterCategory')?.value || '';
-
-            const filtered = allRequests.filter(req => {
-                if (currentRequestTab === 'PENDING' &&
-                    !['PENDING', 'PENDING_ADMIN_MANAGER', 'PENDING_FINANCE_MANAGER'].includes(req.status)) return false;
-                if (currentRequestTab === 'APPROVED' && req.status !== 'APPROVED') return false;
-                if (currentRequestTab === 'REJECTED' && req.status !== 'REJECTED') return false;
-
-                let isVisible = true;
-                const originDept = req.user ? req.user.department : '';
-
-                if (['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)) {
-                    isVisible = true;
-                } else if (currentUser.role === 'STAFF') {
-                    isVisible = req.userId === currentUser.id;
-                } else if (['MANAGER', 'ASSISTANT'].includes(currentUser.role)) {
-                    if (isFinanceWorkflowRequest(req)) {
-                        const isAssignedFinanceStage =
-                            currentUser.role === 'MANAGER' &&
-                            ((req.status === 'PENDING_ADMIN_MANAGER' && currentUser.department === 'Admin') ||
-                            (req.status === 'PENDING_FINANCE_MANAGER' && currentUser.department === 'Finance'));
-                        isVisible = req.userId === currentUser.id || isAssignedFinanceStage;
-                    } else if (req.approvalStage === 'ORIGIN_MGR' || req.approvalStage === 'MANAGER_AND_IT_DUAL') {
-                        isVisible = originDept === currentUser.department || req.userId === currentUser.id;
-                    } else if (req.approvalStage === 'IT_MGR_PENDING') {
-                        isVisible = currentUser.department === 'IT' || originDept === currentUser.department;
-                    } else if (req.approvalStage === 'TARGET_MGR') {
-                        isVisible = req.targetDepartment === currentUser.department || originDept === currentUser.department;
-                    } else {
-                        isVisible = true;
+                if (loadId === requestLoadId) {
+                    const listDiv = document.getElementById('requestList');
+                    if (listDiv) {
+                        listDiv.innerHTML = '';
+                        const message = document.createElement('p');
+                        message.style.cssText = 'color: var(--danger); padding: 25px; text-align: center;';
+                        message.textContent = 'Unable to load requests: ' + err.message;
+                        listDiv.appendChild(message);
                     }
                 }
-
-                const matchKeyword = (req.title || '').toLowerCase().includes(keyword) || 
-                                     (req.description && req.description.toLowerCase().includes(keyword)) ||
-                                     (req.extraFields && req.extraFields.toLowerCase().includes(keyword));
-                const matchCategory = categoryFilter === "" || req.category === categoryFilter;
-
-                return isVisible && matchKeyword && matchCategory;
-            });
-
-            filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-            renderRequests(filtered);
+            }
         }
 
         function renderRequests(requests) {
@@ -744,41 +730,22 @@
                     auditHtml += '</div>';
                 }
 
-                let canAction = false;
-                let approvalStep = null;
-                if (currentUser && isFinanceWorkflowRequest(req) && req.userId !== currentUser.id) {
-                    if (req.status === 'PENDING_ADMIN_MANAGER' &&
-                        currentUser.role === 'MANAGER' && currentUser.department === 'Admin') {
-                        canAction = true;
-                        approvalStep = 'admin';
-                    } else if (req.status === 'PENDING_FINANCE_MANAGER' &&
-                        currentUser.role === 'MANAGER' && currentUser.department === 'Finance' &&
-                        req.adminManagerApprovedBy !== currentUser.id) {
-                        canAction = true;
-                        approvalStep = 'finance';
-                    }
-                } else if (req.status === 'PENDING' && currentUser) {
-                    // SoD check: Cannot approve own request
-                    if (req.userId !== currentUser.id) {
-                        if (['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)) {
-                            canAction = true;
-                        } else if (req.approvalStage === 'MANAGER_AND_IT_DUAL' && currentUser.role === 'MANAGER' && userDept === currentUser.department) {
-                            canAction = true;
-                        } else if (req.approvalStage === 'IT_MGR_PENDING' && currentUser.role === 'MANAGER' && currentUser.department === 'IT') {
-                            canAction = true;
-                        } else if (req.approvalStage === 'ORIGIN_MGR' && currentUser.role === 'MANAGER' && userDept === currentUser.department) {
-                            canAction = true;
-                        } else if (req.approvalStage === 'EXECUTIVE' && ['GM', 'DGM'].includes(currentUser.role)) {
-                            canAction = true;
-                        }
-                    }
-                }
+                const currentStep = req.approvalSteps?.find(
+                    step => step.sequence === req.currentApprovalStep && step.status === 'PENDING'
+                );
+                const canAction = req.status === 'PENDING' && currentUser &&
+                    req.userId !== currentUser.id && currentStep &&
+                    (currentStep.approverRole === 'EXECUTIVE'
+                        ? ['GM', 'DGM'].includes(currentUser.role)
+                        : currentUser.role === 'MANAGER' &&
+                            String(currentStep.department || '').trim().toLowerCase() ===
+                                String(currentUser.department || '').trim().toLowerCase());
 
                 let actionButtons = '';
                 if (canAction) {
                     actionButtons = '<div>' +
-                        '<button type="button" class="btn-approve" onclick="updateStatus(' + req.id + ', \'APPROVED\', ' + (approvalStep ? '\'' + approvalStep + '\'' : 'null') + ')">Approve</button>' +
-                        '<button type="button" class="btn-reject" onclick="updateStatus(' + req.id + ', \'REJECTED\', ' + (approvalStep ? '\'' + approvalStep + '\'' : 'null') + ')">Reject</button>' +
+                        '<button type="button" class="btn-approve" onclick="updateStatus(' + req.id + ', \'APPROVED\')">Approve</button>' +
+                        '<button type="button" class="btn-reject" onclick="updateStatus(' + req.id + ', \'REJECTED\')">Reject</button>' +
                     '</div>';
                 }
 
@@ -800,19 +767,16 @@
             });
         }
 
-        async function updateStatus(id, status, approvalStep) {
+        async function updateStatus(id, status) {
             const remarks = prompt(`Enter optional audit remarks for ${status}:`);
             try {
-                const endpoint = approvalStep
-                    ? `/api/requests/${id}/${approvalStep}-approval`
-                    : `/api/requests/${id}/status`;
-                const res = await fetch(endpoint, {
+                const res = await fetch(`/api/requests/${id}/approval`, {
                     method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
-                        ...(approvalStep && sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {})
+                        Authorization: `Bearer ${sessionToken}`
                     },
-                    body: JSON.stringify({ status, userId: currentUser.id, remarks })
+                    body: JSON.stringify({ status, remarks })
                 });
                 const data = await res.json();
                 if (res.ok) {
@@ -913,11 +877,8 @@
                         targetDept = document.getElementById('targetDepartment').value;
                     }
                     formData.append('targetDepartment', targetDept);
-                    formData.append('isDirectExecutive', document.getElementById('isDirectExecutive')?.checked || false);
-                    formData.append('requiresItApproval', document.getElementById('requiresItApproval')?.checked || false);
                     formData.append('category', dialogCategory);
                     formData.append('description', document.getElementById('description').value);
-                    formData.append('userId', currentUser.id);
 
                     const extraFields = {};
                     if (dialogCategory === 'Purchase') {
@@ -971,6 +932,7 @@
                     try {
                         const res = await fetch('/api/requests', {
                             method: 'POST',
+                            headers: { Authorization: `Bearer ${sessionToken}` },
                             body: formData
                         });
                         if (res.ok) {

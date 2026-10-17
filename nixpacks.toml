@@ -1,5 +1,5 @@
 [phases.build]
-cmds = ["npm install", "npx prisma generate", "npx prisma db push", "node seed.js"]
+cmds = ["npm install", "npx prisma generate"]
 
 [start]
-cmd = "node server.js"
+cmd = "npm start"
