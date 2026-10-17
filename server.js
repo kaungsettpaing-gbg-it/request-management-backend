@@ -4,6 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
@@ -797,10 +798,44 @@ app.get('/api/export/requests', requireApprovalAuthentication, async (req, res) 
 });
 
 const PORT = process.env.PORT || 5000;
+const requiredDatabaseTables = ['User', 'Request', 'RequestApprovalStep', 'AuditLog'];
 
 function isDatabaseSchemaUnavailable(error) {
   return error?.code === 'P2021' ||
     /no such table|table .* does not exist|relation .* does not exist/i.test(error?.message || '');
+}
+
+async function ensureDatabaseSchema() {
+  const tables = await prisma.$queryRawUnsafe(
+    "SELECT name FROM sqlite_master WHERE type = 'table'"
+  );
+  const existingTables = new Set(tables.map(({ name }) => name));
+  const missingTables = requiredDatabaseTables.filter(table => !existingTables.has(table));
+
+  if (missingTables.length === 0) return;
+
+  console.warn(`Missing database table(s): ${missingTables.join(', ')}. Applying the Prisma schema.`);
+  execFileSync(process.execPath, [
+    require.resolve('prisma'),
+    'db',
+    'push',
+    '--skip-generate',
+    '--schema',
+    path.join(__dirname, 'prisma', 'schema.prisma')
+  ], {
+    cwd: __dirname,
+    env: process.env,
+    stdio: 'inherit'
+  });
+
+  const updatedTables = await prisma.$queryRawUnsafe(
+    "SELECT name FROM sqlite_master WHERE type = 'table'"
+  );
+  const updatedTableNames = new Set(updatedTables.map(({ name }) => name));
+  const stillMissingTables = requiredDatabaseTables.filter(table => !updatedTableNames.has(table));
+  if (stillMissingTables.length > 0) {
+    throw new Error(`Prisma db push completed, but required table(s) are still missing: ${stillMissingTables.join(', ')}.`);
+  }
 }
 
 async function runStartupInitializer(name, initialize) {
@@ -815,7 +850,9 @@ async function runStartupInitializer(name, initialize) {
   }
 }
 
-function start() {
+async function start() {
+  await ensureDatabaseSchema();
+
   return app.listen(PORT, '0.0.0.0', async () => {
     console.log(`🚀 Server is running on port ${PORT}`);
 
@@ -825,7 +862,10 @@ function start() {
 }
 
 if (require.main === module) {
-  start();
+  start().catch(error => {
+    console.error('Unable to prepare the database; server was not started:', error);
+    process.exitCode = 1;
+  });
 }
 
 module.exports = { app, start, buildApprovalChain, getApprovalTransition, canUserSeeRequest };
