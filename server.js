@@ -6,6 +6,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { assertPostgresDatabaseUrl } = require('./lib/database-url');
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 
@@ -848,6 +849,8 @@ async function runStartupInitializer(name, initialize) {
 }
 
 async function start() {
+  assertPostgresDatabaseUrl(process.env.DATABASE_URL);
+
   return app.listen(PORT, '0.0.0.0', async () => {
     console.log(`🚀 Server is running on port ${PORT}`);
 
