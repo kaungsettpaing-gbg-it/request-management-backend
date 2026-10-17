@@ -133,7 +133,7 @@ async function initSuperAdmin() {
     console.log(`Initial Super Admin created for ${superAdminEmail}.`);
 }
 
-function buildApprovalChain(originDepartment, targetDepartment) {
+function buildApprovalChain(originDepartment, targetDepartment, requiresExecutiveApproval = false) {
   const departments = [];
   for (const [index, department] of [originDepartment, targetDepartment].entries()) {
     if (typeof department !== 'string' || !department.trim()) continue;
@@ -144,20 +144,23 @@ function buildApprovalChain(originDepartment, targetDepartment) {
     }
   }
 
-  return [
+  const steps = [
     ...departments.map(department => ({
       stepType: 'DEPARTMENT',
       department,
       approverRole: 'MANAGER',
       stage: `PENDING_${department.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MANAGER`
-    })),
-    {
+    }))
+  ];
+  if (requiresExecutiveApproval || steps.length === 0) {
+    steps.push({
       stepType: 'EXECUTIVE',
       department: null,
       approverRole: 'EXECUTIVE',
       stage: 'PENDING_EXECUTIVE'
-    }
-  ].map((step, sequence) => ({ ...step, sequence }));
+    });
+  }
+  return steps.map((step, sequence) => ({ ...step, sequence }));
 }
 
 function getApprovalTransition(status, currentStep, nextStep) {
@@ -194,7 +197,11 @@ async function initializeApprovalChains() {
   });
 
   for (const request of uninitializedRequests) {
-    const chain = buildApprovalChain(request.user.department, request.targetDepartment);
+    const chain = buildApprovalChain(
+      request.user.department,
+      request.targetDepartment,
+      request.requiresExecutiveApproval
+    );
     await prisma.request.update({
       where: { id: request.id },
       data: {
@@ -466,6 +473,8 @@ app.delete('/api/users/:id', async (req, res) => {
 app.post('/api/requests', requireApprovalAuthentication, upload.single('attachment'), async (req, res) => {
   try {
     const { title, description, category, targetDepartment, extraFields } = req.body;
+    const requiresExecutiveApproval = req.body.requiresExecutiveApproval === true ||
+      req.body.requiresExecutiveApproval === 'true';
     const attachmentPath = req.file ? req.file.path : null;
     const categoryName = String(category || 'General').trim();
     const requestUserId = req.approverId;
@@ -481,8 +490,14 @@ app.post('/api/requests', requireApprovalAuthentication, upload.single('attachme
     }
 
     const originDepartment = originUser.department || targetDepartment || 'General';
-    const requestTargetDepartment = targetDepartment || originUser.department || 'General';
-    const chain = buildApprovalChain(originDepartment, requestTargetDepartment);
+    const requestTargetDepartment = typeof targetDepartment === 'string' && targetDepartment.trim()
+      ? targetDepartment.trim()
+      : originUser.department || 'General';
+    const chain = buildApprovalChain(
+      originDepartment,
+      requestTargetDepartment,
+      requiresExecutiveApproval
+    );
 
     const newRequest = await prisma.request.create({
       data: {
@@ -490,6 +505,7 @@ app.post('/api/requests', requireApprovalAuthentication, upload.single('attachme
         description,
         category: categoryName,
         targetDepartment: requestTargetDepartment,
+        requiresExecutiveApproval,
         approvalStage: chain[0].stage,
         currentApprovalStep: 0,
         userId: requestUserId,
@@ -824,10 +840,20 @@ async function ensureDatabaseSchema() {
   );
   const existingTables = new Set(tables.map(({ name }) => name));
   const missingTables = requiredDatabaseTables.filter(table => !existingTables.has(table));
+  const requestColumns = await prisma.$queryRawUnsafe('PRAGMA table_info("Request")');
+  const missingRequestColumns = existingTables.has('Request')
+    ? ['requiresExecutiveApproval'].filter(column =>
+      !requestColumns.some(existingColumn => existingColumn.name === column)
+    )
+    : [];
 
-  if (missingTables.length === 0) return;
+  if (missingTables.length === 0 && missingRequestColumns.length === 0) return;
 
-  console.warn(`Missing database table(s): ${missingTables.join(', ')}. Applying the Prisma schema.`);
+  const missingSchemaObjects = [
+    ...missingTables.map(table => `table ${table}`),
+    ...missingRequestColumns.map(column => `Request.${column}`)
+  ];
+  console.warn(`Missing database schema object(s): ${missingSchemaObjects.join(', ')}. Applying the Prisma schema.`);
   execFileSync(process.execPath, [
     require.resolve('prisma'),
     'db',
@@ -846,8 +872,16 @@ async function ensureDatabaseSchema() {
   );
   const updatedTableNames = new Set(updatedTables.map(({ name }) => name));
   const stillMissingTables = requiredDatabaseTables.filter(table => !updatedTableNames.has(table));
-  if (stillMissingTables.length > 0) {
-    throw new Error(`Prisma db push completed, but required table(s) are still missing: ${stillMissingTables.join(', ')}.`);
+  const updatedRequestColumns = await prisma.$queryRawUnsafe('PRAGMA table_info("Request")');
+  const stillMissingRequestColumns = ['requiresExecutiveApproval'].filter(column =>
+    !updatedRequestColumns.some(existingColumn => existingColumn.name === column)
+  );
+  if (stillMissingTables.length > 0 || stillMissingRequestColumns.length > 0) {
+    const missing = [
+      ...stillMissingTables.map(table => `table ${table}`),
+      ...stillMissingRequestColumns.map(column => `Request.${column}`)
+    ];
+    throw new Error(`Prisma db push completed, but required schema object(s) are still missing: ${missing.join(', ')}.`);
   }
 }
 

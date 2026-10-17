@@ -30,6 +30,7 @@ model Request {
   category                 String                @default("General")
   status                   String                @default("PENDING")
   targetDepartment         String?               @default("General") // Cross-Department Request Target
+  requiresExecutiveApproval Boolean               @default(false)
   approvalStage            String?               @default("PENDING")
   currentApprovalStep      Int                   @default(0)
   adminManagerApprovedBy   Int?

@@ -3,7 +3,7 @@ const test = require('node:test');
 const { buildApprovalChain, canUserSeeRequest, getApprovalTransition } = require('../server');
 
 test('cross-department requests route through origin, target, then executive approval', () => {
-  const chain = buildApprovalChain('Admin', 'Finance');
+  const chain = buildApprovalChain('Admin', 'Finance', true);
 
   assert.deepEqual(chain.map(({ stepType, department, approverRole }) => ({
     stepType,
@@ -17,20 +17,20 @@ test('cross-department requests route through origin, target, then executive app
 });
 
 test('same-department requests do not repeat a department manager step', () => {
-  const chain = buildApprovalChain('Finance', 'finance');
+  const chain = buildApprovalChain('Finance', 'finance', true);
 
   assert.deepEqual(chain.map(step => step.department), ['Finance', null]);
   assert.equal(chain.at(-1).approverRole, 'EXECUTIVE');
 });
 
 test('General target requests do not wait for a nonexistent General department manager', () => {
-  const chain = buildApprovalChain('Admin', 'General');
+  const chain = buildApprovalChain('Admin', 'General', true);
 
   assert.deepEqual(chain.map(step => step.department), ['Admin', null]);
 });
 
 test('approval advances from the origin manager to the target manager and then to executives', () => {
-  const chain = buildApprovalChain('Admin', 'Finance');
+  const chain = buildApprovalChain('Admin', 'Finance', true);
 
   assert.deepEqual(getApprovalTransition('APPROVED', { sequence: 0 }, chain[1]), {
     status: 'PENDING',
@@ -46,6 +46,26 @@ test('approval advances from the origin manager to the target manager and then t
     status: 'APPROVED',
     approvalStage: 'COMPLETED',
     currentApprovalStep: 3
+  });
+});
+
+test('Admin requests go to the target manager and require executives only when marked important', () => {
+  const normalChain = buildApprovalChain('Admin', 'Finance', false);
+  const importantChain = buildApprovalChain('Admin', 'Finance', true);
+
+  assert.deepEqual(normalChain.map(step => [step.department, step.approverRole]), [
+    ['Admin', 'MANAGER'],
+    ['Finance', 'MANAGER']
+  ]);
+  assert.deepEqual(importantChain.map(step => [step.department, step.approverRole]), [
+    ['Admin', 'MANAGER'],
+    ['Finance', 'MANAGER'],
+    [null, 'EXECUTIVE']
+  ]);
+  assert.deepEqual(getApprovalTransition('APPROVED', normalChain[0], normalChain[1]), {
+    status: 'PENDING',
+    approvalStage: 'PENDING_FINANCE_MANAGER',
+    currentApprovalStep: 1
   });
 });
 

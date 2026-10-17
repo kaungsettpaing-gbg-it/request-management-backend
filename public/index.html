@@ -222,7 +222,11 @@
                         </select>
                     </div>
 
-                    <p style="color: var(--text-muted); font-size: 13px;">Requests route through the requesting department manager, the target department manager when different, and then a GM or DGM.</p>
+                    <label style="display: flex; align-items: center; gap: 8px; margin: 12px 0;">
+                        <input type="checkbox" id="requiresExecutiveApproval" name="requiresExecutiveApproval" style="width: auto;">
+                        <small>Important request: require GM/DGM approval</small>
+                    </label>
+                    <p style="color: var(--text-muted); font-size: 13px;">Requests route through the requesting department manager, then the target department manager when different. Important requests also require GM/DGM approval.</p>
 
                     <label><small>Select Category:</small></label>
                     <select id="category" name="category" onchange="renderDynamicFields()">
@@ -450,7 +454,9 @@
                 document.getElementById('sessRole').innerText = currentUser.role || 'STAFF';
 
                 const targetDeptContainer = document.getElementById('targetDeptContainer');
-                if (currentUser.role === 'STAFF') {
+                const canSelectTargetDepartment = currentUser.role !== 'STAFF' ||
+                    String(currentUser.department || '').trim().toLowerCase() === 'admin';
+                if (!canSelectTargetDepartment) {
                     if (targetDeptContainer) targetDeptContainer.style.display = 'none';
                 } else {
                     if (targetDeptContainer) targetDeptContainer.style.display = 'block';
@@ -870,13 +876,16 @@
                     const formData = new FormData();
                     formData.append('title', document.getElementById('title').value);
                     const dialogCategory = document.getElementById('category').value;
-                    let targetDept = currentUser.department;
-                    if (['Finance', 'Withdrawal'].includes(dialogCategory)) {
-                        targetDept = 'Finance';
-                    } else if (currentUser.role !== 'STAFF') {
-                        targetDept = document.getElementById('targetDepartment').value;
-                    }
+                    const canSelectTargetDepartment = currentUser.role !== 'STAFF' ||
+                        String(currentUser.department || '').trim().toLowerCase() === 'admin';
+                    const targetDept = canSelectTargetDepartment
+                        ? document.getElementById('targetDepartment').value
+                        : currentUser.department;
                     formData.append('targetDepartment', targetDept);
+                    formData.append(
+                        'requiresExecutiveApproval',
+                        String(document.getElementById('requiresExecutiveApproval').checked)
+                    );
                     formData.append('category', dialogCategory);
                     formData.append('description', document.getElementById('description').value);
 
