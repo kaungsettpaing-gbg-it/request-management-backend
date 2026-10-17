@@ -12,10 +12,6 @@ const { PrismaClient } = require('@prisma/client');
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL must be configured before the server can start.');
 }
-if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL.startsWith('file:/')) {
-  throw new Error('Production DATABASE_URL must use an absolute SQLite path on a persistent mounted volume.');
-}
-
 const prisma = new PrismaClient();
 const app = express();
 const hasStrongJwtSecret = typeof process.env.JWT_SECRET === 'string' &&
