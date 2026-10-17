@@ -235,6 +235,7 @@ app.post('/api/login', async (req, res) => {
       where: { telegramId: cleanKey }
     });
     const user = matchingTelegram || (await prisma.user.findMany({
+      select: { id: true, name: true, email: true, telegramId: true, password: true, role: true, department: true },
       where: {
         OR: [
           { email: { not: null } },
@@ -249,12 +250,15 @@ app.post('/api/login', async (req, res) => {
     );
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid username or password." });
+      return res.status(401).json({ error: 'User not found.' });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch && password !== user.password) {
-      return res.status(401).json({ error: "Invalid username or password." });
+    const hasBcryptPassword = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(user.password);
+    const passwordMatches = hasBcryptPassword
+      ? await bcrypt.compare(password, user.password)
+      : password === user.password;
+    if (!passwordMatches) {
+      return res.status(401).json({ error: 'Incorrect password.' });
     }
 
     res.json({
@@ -310,17 +314,34 @@ app.post('/api/users', async (req, res) => {
       return res.status(400).json({ error: 'Name, email, and password are required.' });
     }
 
+    const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
-    const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    const existingUsers = await prisma.user.findMany({
+      where: {
+        OR: [
+          { email: normalizedEmail },
+          { name: { not: null } }
+        ]
+      },
+      select: { name: true, email: true }
+    });
+    const existingEmail = existingUsers.some(user => user.email.toLowerCase() === normalizedEmail);
+    const existingName = existingUsers.some(user =>
+      user.name?.trim().toLowerCase() === normalizedName.toLowerCase()
+    );
 
-    if (existingUser) {
-      return res.status(409).json({ error: 'A user with this email already exists.' });
+    if (existingEmail || existingName) {
+      return res.status(400).json({
+        error: existingEmail
+          ? 'A user with this email already exists.'
+          : 'A user with this username already exists.'
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await prisma.user.create({
       data: {
-        name: name.trim(),
+        name: normalizedName,
         email: normalizedEmail,
         password: hashedPassword,
         department: department || 'General',
@@ -343,7 +364,10 @@ app.post('/api/users', async (req, res) => {
     });
   } catch (error) {
     console.error('Create User Error:', error);
-    res.status(500).json({ error: error.message });
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'A user with this email already exists.' });
+    }
+    res.status(500).json({ error: 'Unable to create user.' });
   }
 });
 
