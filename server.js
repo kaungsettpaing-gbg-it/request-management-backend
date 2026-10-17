@@ -374,6 +374,13 @@ app.post('/api/users', async (req, res) => {
         error: `A user with this ${duplicateField} already exists.`
       });
     }
+    const databaseConnectionErrorCodes = ['P1000', 'P1001', 'P1002', 'P1003', 'P1010', 'P1011', 'P1017', 'P2024'];
+    if (error.name === 'PrismaClientInitializationError' ||
+        databaseConnectionErrorCodes.includes(error.errorCode || error.code)) {
+      return res.status(503).json({
+        error: 'Registration is temporarily unavailable because the database cannot be reached. Verify DATABASE_URL and database network access.'
+      });
+    }
     res.status(500).json({ error: 'Unable to create user.' });
   }
 });
