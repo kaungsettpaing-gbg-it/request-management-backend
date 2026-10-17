@@ -319,21 +319,18 @@ app.post('/api/users', async (req, res) => {
 
     const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
-    const existingUsers = await prisma.user.findMany({
+    const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
           { email: normalizedEmail },
-          { name: { not: null } }
+          { name: { equals: normalizedName, mode: 'insensitive' } }
         ]
       },
       select: { name: true, email: true }
     });
-    const existingEmail = existingUsers.some(user => user.email.toLowerCase() === normalizedEmail);
-    const existingName = existingUsers.some(user =>
-      user.name?.trim().toLowerCase() === normalizedName.toLowerCase()
-    );
 
-    if (existingEmail || existingName) {
+    if (existingUser) {
+      const existingEmail = existingUser.email.toLowerCase() === normalizedEmail;
       return res.status(400).json({
         error: existingEmail
           ? 'A user with this email already exists.'
@@ -368,7 +365,13 @@ app.post('/api/users', async (req, res) => {
   } catch (error) {
     console.error('Create User Error:', error);
     if (error.code === 'P2002') {
-      return res.status(400).json({ error: 'A user with this email already exists.' });
+      const conflictingFields = Array.isArray(error.meta?.target)
+        ? error.meta.target
+        : [error.meta?.target].filter(Boolean);
+      const duplicateField = conflictingFields.includes('name') ? 'username' : 'email';
+      return res.status(400).json({
+        error: `A user with this ${duplicateField} already exists.`
+      });
     }
     res.status(500).json({ error: 'Unable to create user.' });
   }
