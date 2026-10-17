@@ -64,6 +64,12 @@
         .filter-bar input, .filter-bar select { margin: 0; flex: 1; min-width: 160px; }
 
         .dynamic-fields { background: #0f172a; padding: 15px; border-radius: 8px; margin-bottom: 16px; border: 1px dashed var(--border-color); }
+        .amount-input-wrapper { position: relative; }
+        .amount-input-wrapper input { padding-right: 56px; }
+        .amount-input-wrapper input::-webkit-outer-spin-button,
+        .amount-input-wrapper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .amount-input-wrapper input[type=number] { -moz-appearance: textfield; }
+        .amount-input-suffix { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; font-size: 14px; }
         .conditional-fields { border-left: 2px solid var(--primary); margin: 4px 0 12px; padding: 4px 0 0 12px; }
         .conditional-fields[hidden] { display: none; }
         .timestamp { font-size: 12px; color: var(--text-muted); font-weight: 600; }
@@ -330,13 +336,15 @@
             container.innerHTML = '';
 
             if (cat === 'Purchase') {
-                container.innerHTML = '<label><small>Estimated Amount ($ / MMK):</small></label>' +
-                    '<input type="number" id="dyn_amount" placeholder="e.g. 500000 or 1000000" required>' +
+                container.innerHTML = '<label><small>Estimated Amount (MMK):</small></label>' +
+                    '<div class="amount-input-wrapper"><input type="number" id="dyn_amount" placeholder="e.g. 500000 or 1000000" required>' +
+                    '<span class="amount-input-suffix" aria-hidden="true">MMK</span></div>' +
                     '<label><small>Quantity / Items:</small></label>' +
                     '<input type="text" id="dyn_quantity" placeholder="e.g. 2 Laptops" required>';
             } else if (cat === 'Finance' || cat === 'Withdrawal') {
-                container.innerHTML = '<label><small>Requested Amount ($ / MMK):</small></label>' +
-                    '<input type="number" id="dyn_amount" min="0.01" step="0.01" placeholder="Enter amount" required>';
+                container.innerHTML = '<label><small>Requested Amount (MMK):</small></label>' +
+                    '<div class="amount-input-wrapper"><input type="number" id="dyn_amount" min="0.01" step="0.01" placeholder="Enter amount" required>' +
+                    '<span class="amount-input-suffix" aria-hidden="true">MMK</span></div>';
             } else if (cat === 'Leave') {
                 container.innerHTML = '<label><small>Leave Type:</small></label>' +
                     '<select id="dyn_leaveType">' +
