@@ -94,46 +94,42 @@ async function getChatIdFromUsername(username) {
 
 // Auto Init Super Admin
 async function initSuperAdmin() {
-    try {
-        const superAdminEmail = 'superadmin@company.com';
-        const superAdminTelegram = 'okeydokey2';
+    const superAdminEmail = 'superadmin@company.com';
+    const superAdminTelegram = 'okeydokey2';
 
-        const adminExists = await prisma.user.findFirst({
-            where: {
-                OR: [
-                    { role: 'SUPER_ADMIN' },
-                    { email: superAdminEmail },
-                    { telegramId: superAdminTelegram }
-                ]
-            }
-        });
-
-        if (adminExists) {
-            console.log(`Super Admin is configured for ${adminExists.email}.`);
-            return;
+    const adminExists = await prisma.user.findFirst({
+        where: {
+            OR: [
+                { role: 'SUPER_ADMIN' },
+                { email: superAdminEmail },
+                { telegramId: superAdminTelegram }
+            ]
         }
+    });
 
-        const password = process.env.SUPER_ADMIN_PASSWORD;
-        if (!password) {
-            console.warn('SUPER_ADMIN_PASSWORD is not configured. Skipping initial Super Admin creation.');
-            return;
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        await prisma.user.create({
-            data: {
-                name: 'Super Admin',
-                email: superAdminEmail,
-                telegramId: superAdminTelegram,
-                password: hashedPassword,
-                role: 'SUPER_ADMIN',
-                department: 'Executive Management'
-            }
-        });
-        console.log(`Initial Super Admin created for ${superAdminEmail}.`);
-    } catch (err) {
-        console.error('Error initializing Super Admin:', err);
+    if (adminExists) {
+        console.log(`Super Admin is configured for ${adminExists.email}.`);
+        return;
     }
+
+    const password = process.env.SUPER_ADMIN_PASSWORD;
+    if (!password) {
+        console.warn('SUPER_ADMIN_PASSWORD is not configured. Skipping initial Super Admin creation.');
+        return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await prisma.user.create({
+        data: {
+            name: 'Super Admin',
+            email: superAdminEmail,
+            telegramId: superAdminTelegram,
+            password: hashedPassword,
+            role: 'SUPER_ADMIN',
+            department: 'Executive Management'
+        }
+    });
+    console.log(`Initial Super Admin created for ${superAdminEmail}.`);
 }
 
 function buildApprovalChain(originDepartment, targetDepartment) {
@@ -802,17 +798,29 @@ app.get('/api/export/requests', requireApprovalAuthentication, async (req, res) 
 
 const PORT = process.env.PORT || 5000;
 
+function isDatabaseSchemaUnavailable(error) {
+  return error?.code === 'P2021' ||
+    /no such table|table .* does not exist|relation .* does not exist/i.test(error?.message || '');
+}
+
+async function runStartupInitializer(name, initialize) {
+  try {
+    await initialize();
+  } catch (error) {
+    if (isDatabaseSchemaUnavailable(error)) {
+      console.warn(`Database tables are not initialized; skipping ${name} for now. Run Prisma db push or migrations.`, error.message);
+      return;
+    }
+    console.error(`Error during ${name}:`, error);
+  }
+}
+
 function start() {
   return app.listen(PORT, '0.0.0.0', async () => {
     console.log(`🚀 Server is running on port ${PORT}`);
 
-    try {
-      await initializeApprovalChains();
-    } catch (err) {
-      console.error('Error initializing approval chains:', err);
-    }
-
-    await initSuperAdmin();
+    await runStartupInitializer('approval chain initialization', initializeApprovalChains);
+    await runStartupInitializer('Super Admin initialization', initSuperAdmin);
   });
 }
 
