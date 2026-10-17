@@ -815,18 +815,14 @@ app.get('/api/export/requests', requireApprovalAuthentication, async (req, res) 
     }
     const requests = await prisma.request.findMany({
       include: {
-        user: { select: { id: true, name: true, department: true, role: true } },
         approvalSteps: true
       },
       orderBy: { createdAt: 'desc' }
     });
-    let csv = 'ID,Title,Category,Target Dept,Stage,Status,Description,Submitted By,Sender Dept,Role,Date\n';
+    let csv = 'ID,Title,Category,Target Dept,Stage,Status,Description,Date\n';
     requests.filter(request => canUserSeeRequest(request, actor)).forEach(r => {
-      const userName = r.user ? r.user.name : 'Unknown';
-      const userDept = r.user ? r.user.department : 'N/A';
-      const userRole = r.user ? r.user.role : 'N/A';
       const desc = (r.description || '').replace(/"/g, '""');
-      csv += `${r.id},"${r.title}","${r.category}","${r.targetDepartment || 'General'}","${r.approvalStage}","${r.status}","${desc}","${userName}","${userDept}","${userRole}","${r.createdAt}"\n`;
+      csv += `${r.id},"${r.title}","${r.category}","${r.targetDepartment || 'General'}","${r.approvalStage}","${r.status}","${desc}","${r.createdAt}"\n`;
     });
     res.header('Content-Type', 'text/csv');
     res.attachment('security_audit_request_report.csv');
