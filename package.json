@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx prisma db push && node server.js",
+    "postinstall": "prisma generate",
+    "start": "prisma db push && node server.js",
     "build": "npx prisma generate",
     "test": "node --test test/approval-workflow.test.js"
   },
