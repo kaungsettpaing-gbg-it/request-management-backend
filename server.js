@@ -6,7 +6,14 @@ const fs = require('fs/promises');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const cron = require('node-cron');
+const ExcelJS = require('exceljs');
 const { assertPostgresDatabaseUrl } = require('./lib/database-url');
+const {
+  formatMonthlyReportMessage,
+  getUtcMonthPeriod,
+  summarizeRequests
+} = require('./lib/monthly-report');
 require('dotenv').config();
 const prisma = require('./lib/prisma');
 
@@ -160,6 +167,8 @@ const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
 const TELEGRAM_WEBHOOK_URL = process.env.TELEGRAM_WEBHOOK_URL;
 const TELEGRAM_LINK_TOKEN_TTL_MS = 10 * 60 * 1000;
 let cachedSuperAdminChatId = null;
+let monthlyReportCronTask = null;
+let monthlyReportJobRunning = false;
 const USER_DEPARTMENTS = [
   'HR', 'Finance', 'IT', 'Cashier', 'Sales & Marketing',
   'Warehouse', 'Production', 'Admin', 'Executive Management'
@@ -678,6 +687,132 @@ async function notifyRequestOwner(request, status) {
     [requester.telegramId],
     formatRequestNotification({ ...request, user: requester }, status)
   );
+}
+
+async function generateMonthlyReport(period) {
+  const requests = await prisma.request.findMany({
+    where: {
+      status: { in: ['PENDING', 'APPROVED', 'REJECTED'] },
+      createdAt: {
+        gte: period.start,
+        lt: period.end
+      }
+    },
+    select: {
+      id: true,
+      title: true,
+      category: true,
+      targetDepartment: true,
+      status: true,
+      extraFields: true,
+      createdAt: true,
+      user: { select: { name: true } }
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+  });
+  const summary = summarizeRequests(requests);
+  const report = await prisma.monthlyReport.upsert({
+    where: { monthKey: period.monthKey },
+    create: {
+      monthKey: period.monthKey,
+      periodStart: period.start,
+      periodEnd: period.end,
+      ...summary
+    },
+    update: {
+      periodStart: period.start,
+      periodEnd: period.end,
+      ...summary,
+      generatedAt: new Date()
+    }
+  });
+  return { report, requests };
+}
+
+async function sendMonthlyReportToSuperAdmin(report) {
+  const claimTime = new Date();
+  const claimExpiredBefore = new Date(claimTime.getTime() - 10 * 60 * 1000);
+  const claim = await prisma.monthlyReport.updateMany({
+    where: {
+      monthKey: report.monthKey,
+      telegramSentAt: null,
+      OR: [
+        { telegramClaimedAt: null },
+        { telegramClaimedAt: { lt: claimExpiredBefore } }
+      ]
+    },
+    data: { telegramClaimedAt: claimTime }
+  });
+  if (claim.count !== 1) return false;
+
+  try {
+    const result = await notifySuperAdmin(formatMonthlyReportMessage(report));
+    if (!result.ok) {
+      throw new Error(result.error || 'Monthly report Telegram delivery failed.');
+    }
+    await prisma.monthlyReport.update({
+      where: { monthKey: report.monthKey },
+      data: { telegramSentAt: new Date(), telegramClaimedAt: null }
+    });
+    return true;
+  } catch (error) {
+    await prisma.monthlyReport.updateMany({
+      where: { monthKey: report.monthKey, telegramClaimedAt: claimTime },
+      data: { telegramClaimedAt: null }
+    });
+    throw error;
+  }
+}
+
+async function runMonthlyReportJob(now = new Date()) {
+  const period = getUtcMonthPeriod(now, -1);
+  const { report } = await generateMonthlyReport(period);
+  const pendingReports = await prisma.monthlyReport.findMany({
+    where: { telegramSentAt: null },
+    orderBy: { monthKey: 'asc' }
+  });
+  const deliveryErrors = [];
+  for (const pendingReport of pendingReports) {
+    try {
+      await sendMonthlyReportToSuperAdmin(pendingReport);
+    } catch (error) {
+      deliveryErrors.push(error);
+      console.error(`Monthly report ${pendingReport.monthKey} Telegram delivery failed:`, error);
+    }
+  }
+  console.log(`Monthly report ${report.monthKey} generated; attempted ${pendingReports.length} pending delivery(ies).`);
+  if (deliveryErrors.length) {
+    throw new AggregateError(deliveryErrors, 'One or more monthly report notifications could not be delivered.');
+  }
+  return report;
+}
+
+function startMonthlyReportScheduler() {
+  if (monthlyReportCronTask) return monthlyReportCronTask;
+  monthlyReportCronTask = cron.schedule('0 0 1 * *', async () => {
+    if (monthlyReportJobRunning) {
+      console.warn('Monthly report job skipped because a prior run is still active.');
+      return;
+    }
+    monthlyReportJobRunning = true;
+    try {
+      await runMonthlyReportJob();
+    } catch (error) {
+      console.error('Monthly report generation or delivery failed:', error);
+      await notifySuperAdmin(formatServerError(error, 'Monthly report job'));
+    } finally {
+      monthlyReportJobRunning = false;
+    }
+  }, { timezone: 'UTC' });
+  console.log('Monthly report scheduler started (0 0 1 * * UTC).');
+  monthlyReportJobRunning = true;
+  void runMonthlyReportJob().catch(error => {
+    console.error('Monthly report catch-up or delivery failed:', error);
+    void notifySuperAdmin(formatServerError(error, 'Monthly report catch-up'));
+  }).finally(() => {
+    monthlyReportJobRunning = false;
+  });
+  return monthlyReportCronTask;
 }
 
 // Auto Init Super Admin
@@ -1920,6 +2055,15 @@ async function requireAdminAuthentication(req, res, next) {
   });
 }
 
+async function requireSuperAdminAuthentication(req, res, next) {
+  return requireAdminAuthentication(req, res, () => {
+    if (req.adminRole !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Super Admin access is required.' });
+    }
+    return next();
+  });
+}
+
 async function handleRequestApproval(req, res) {
   try {
     const requestId = Number(req.params.id);
@@ -2064,6 +2208,72 @@ function escapeCsvCell(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+app.get('/api/reports/monthly', requireSuperAdminAuthentication, async (req, res) => {
+  try {
+    const period = getUtcMonthPeriod();
+    const { report, requests } = await generateMonthlyReport(period);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Request Management System';
+    workbook.created = new Date();
+
+    const summarySheet = workbook.addWorksheet('Summary');
+    summarySheet.addRows([
+      ['Monthly Request Report', report.monthKey],
+      ['Total Requests', report.totalRequests],
+      ['✅ Approved', report.approvedCount],
+      ['❌ Rejected', report.rejectedCount],
+      ['⏳ Pending', report.pendingCount],
+      ['Generated At (UTC)', report.generatedAt.toISOString()]
+    ]);
+    summarySheet.getColumn(1).width = 28;
+    summarySheet.getColumn(2).width = 32;
+    summarySheet.getRow(1).font = { bold: true, size: 14 };
+    summarySheet.getColumn(2).alignment = { vertical: 'top' };
+
+    const requestsSheet = workbook.addWorksheet('Requests');
+    requestsSheet.columns = [
+      { width: 14 },
+      { width: 40 },
+      { width: 22 },
+      { width: 24 },
+      { width: 16 },
+      { width: 22 },
+      { width: 28 },
+      { width: 28 }
+    ];
+    requestsSheet.addRow([
+      'Request ID', 'Title', 'Category', 'Target Department', 'Status',
+      'Amount (MMK)', 'Requester', 'Created At (UTC)'
+    ]);
+    requests.forEach(request => {
+      requestsSheet.addRow([
+        request.id,
+        request.title,
+        request.category,
+        request.targetDepartment || 'General',
+        request.status,
+        getRequestAmount(request.extraFields),
+        request.user?.name || 'Unknown',
+        request.createdAt.toISOString()
+      ]);
+    });
+    requestsSheet.getRow(1).font = { bold: true };
+    requestsSheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    const file = Buffer.from(await workbook.xlsx.writeBuffer());
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="monthly-request-report-${report.monthKey}.xlsx"`,
+      'Cache-Control': 'private, no-store'
+    });
+    return res.send(file);
+  } catch (error) {
+    console.error('Monthly report export failed:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to generate the monthly report.' });
+  }
+});
+
 app.get('/api/export/requests', requireCompletedProfile, async (req, res) => {
   try {
     const actor = await prisma.user.findUnique({
@@ -2126,6 +2336,7 @@ async function start() {
 
   await initializeApprovalChains();
   await initSuperAdmin();
+  startMonthlyReportScheduler();
 
   return new Promise((resolve, reject) => {
     const server = app.listen(PORT, '0.0.0.0', () => {

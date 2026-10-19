@@ -510,6 +510,7 @@
                     <select id="exportActionSelect" onchange="handleExportAction(this)" style="margin: 0; padding: 10px 14px; background: #0284c7; color: white; font-weight: 600; border-radius: 8px; cursor: pointer; border: none;">
                         <option value="" disabled selected>📥 Export / Print Options ▼</option>
                         <option value="csv">📊 Export as Audit CSV</option>
+                        <option id="monthlyReportExportOption" value="monthly-report" hidden>📅 Download Monthly Report (Excel)</option>
                         <option value="pdf">🖨️ Save as PDF / Print</option>
                     </select>
                 </div>
@@ -900,6 +901,10 @@
                 } else {
                     document.getElementById('exportDropdownContainer').style.display = 'none';
                 }
+                const monthlyReportOption = document.getElementById('monthlyReportExportOption');
+                if (monthlyReportOption) {
+                    monthlyReportOption.hidden = currentUser.role !== 'SUPER_ADMIN';
+                }
             } else {
                 document.body.classList.add('login-screen');
                 document.body.classList.remove('admin-screen');
@@ -921,7 +926,7 @@
             if (val === 'csv') {
                 try {
                     const response = await fetch('/api/export/requests', {
-                        headers: { Authorization: `Bearer ${sessionToken}` }
+                        headers: { Authorization: 'Bearer ' + sessionToken }
                     });
                     if (!response.ok) {
                         const data = await response.json();
@@ -936,6 +941,24 @@
                     }
                 } catch (error) {
                     alert("Export Error: " + error.message);
+                }
+            } else if (val === 'monthly-report') {
+                try {
+                    const response = await fetch('/api/reports/monthly', {
+                        headers: { Authorization: 'Bearer ' + sessionToken }
+                    });
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.error || 'Unable to generate monthly report.');
+                    }
+                    const url = URL.createObjectURL(await response.blob());
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `monthly-request-report-${new Date().toISOString().slice(0, 7)}.xlsx`;
+                    link.click();
+                    URL.revokeObjectURL(url);
+                } catch (error) {
+                    alert("Monthly Report Error: " + error.message);
                 }
             } else if (val === 'pdf') {
                 window.print();

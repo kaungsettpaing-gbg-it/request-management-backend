@@ -30,6 +30,15 @@ their Telegram account is linked. Intermediate approval steps remain pending
 and do not send a requester status notification. Notification text is bounded
 and chunked to fit Telegram message limits.
 
+A monthly summary is generated at `0 0 1 * *` in UTC for the preceding
+calendar month. It stores a unique monthly record, then sends one summary to
+the Super Admin chat. Startup also catches up the preceding month and retries
+any saved monthly reports whose Telegram notification has not yet succeeded.
+Telegram delivery requires `TELEGRAM_BOT_TOKEN` and a configured or linked
+Super Admin chat. Super Admins can download the in-progress current-month
+summary and request details as an Excel workbook from the dashboard export
+menu or `GET /api/reports/monthly`.
+
 ## Super Admin access recovery
 
 `SUPER_ADMIN_EMAIL` identifies the account that startup will promote to
