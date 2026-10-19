@@ -57,6 +57,7 @@ const upload = multer({ storage });
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '') || 'Telegbg_Bot';
 const SUPER_ADMIN_TELEGRAM_CHAT_ID = process.env.SUPER_ADMIN_TELEGRAM_CHAT_ID;
+let cachedSuperAdminChatId = null;
 const USER_DEPARTMENTS = [
   'HR', 'Finance', 'IT', 'Cashier', 'Sales & Marketing',
   'Warehouse', 'Production', 'Admin', 'Executive Management'
@@ -144,23 +145,48 @@ function formatServerError(error, context = 'Unhandled server error') {
 }
 
 async function notifySuperAdmin(message) {
-  if (!SUPER_ADMIN_TELEGRAM_CHAT_ID) {
-    console.error('Centralized Telegram notification skipped: SUPER_ADMIN_TELEGRAM_CHAT_ID is not configured.');
-    return;
+  if (!TELEGRAM_BOT_TOKEN) {
+    const error = 'TELEGRAM_BOT_TOKEN is not configured.';
+    console.error(`Centralized Telegram notification skipped: ${error}`);
+    return { ok: false, error };
   }
-  if (!/^-?\d+$/.test(SUPER_ADMIN_TELEGRAM_CHAT_ID)) {
-    console.error('Centralized Telegram notification skipped: SUPER_ADMIN_TELEGRAM_CHAT_ID must be a numeric Telegram chat ID.');
-    return;
-  }
+
   try {
+    const chatId = await resolveSuperAdminChatId();
+    if (!chatId) {
+      const error = 'Set SUPER_ADMIN_TELEGRAM_CHAT_ID or link a Telegram account to the SUPER_ADMIN user.';
+      console.error(`Centralized Telegram notification skipped: ${error}`);
+      return { ok: false, error };
+    }
     const chunks = splitTelegramMessage(redactSensitiveErrorText(message));
     for (let index = 0; index < chunks.length; index += 1) {
       const partLabel = chunks.length > 1 ? ` (part ${index + 1}/${chunks.length})` : '';
-      await sendTelegramMessage(SUPER_ADMIN_TELEGRAM_CHAT_ID, `${chunks[index]}${partLabel}`);
+      await sendTelegramMessage(chatId, `${chunks[index]}${partLabel}`);
     }
+    return { ok: true };
   } catch (error) {
-    console.error('Centralized Telegram notification failed:', redactSensitiveErrorText(error.stack || error.message));
+    const safeError = redactSensitiveErrorText(error.stack || error.message);
+    console.error('Centralized Telegram notification failed:', safeError);
+    return { ok: false, error: redactSensitiveErrorText(error.message) };
   }
+}
+
+async function resolveSuperAdminChatId() {
+  if (SUPER_ADMIN_TELEGRAM_CHAT_ID) {
+    if (!/^-?\d+$/.test(SUPER_ADMIN_TELEGRAM_CHAT_ID)) {
+      throw new Error('SUPER_ADMIN_TELEGRAM_CHAT_ID must be a numeric Telegram chat ID.');
+    }
+    return SUPER_ADMIN_TELEGRAM_CHAT_ID;
+  }
+  if (cachedSuperAdminChatId) return cachedSuperAdminChatId;
+
+  const superAdmin = await prisma.user.findFirst({
+    where: { role: 'SUPER_ADMIN', telegramId: { not: null } },
+    select: { telegramId: true }
+  });
+  if (!superAdmin?.telegramId || !/^-?\d+$/.test(superAdmin.telegramId)) return null;
+  cachedSuperAdminChatId = superAdmin.telegramId;
+  return cachedSuperAdminChatId;
 }
 
 async function notifyRequestActivity(tag, request) {
@@ -352,6 +378,9 @@ async function initSuperAdmin() {
     });
 
     if (adminExists) {
+        if (adminExists.role === 'SUPER_ADMIN') {
+            await bindSuperAdminTelegramAccount(adminExists);
+        }
         console.log(`Super Admin is configured for ${adminExists.email}.`);
         return;
     }
@@ -362,18 +391,54 @@ async function initSuperAdmin() {
         return;
     }
 
+    if (SUPER_ADMIN_TELEGRAM_CHAT_ID) {
+        if (!/^\d+$/.test(SUPER_ADMIN_TELEGRAM_CHAT_ID)) {
+            throw new Error('SUPER_ADMIN_TELEGRAM_CHAT_ID must be a numeric Telegram chat ID.');
+        }
+        const existingBinding = await prisma.user.findUnique({
+            where: { telegramId: SUPER_ADMIN_TELEGRAM_CHAT_ID },
+            select: { id: true }
+        });
+        if (existingBinding) {
+            throw new Error('The configured Super Admin Telegram ID is already linked to another user.');
+        }
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
     await prisma.user.create({
         data: {
             name: 'Super Admin',
             email: superAdminEmail,
             telegramUsername: superAdminTelegram,
+            ...(SUPER_ADMIN_TELEGRAM_CHAT_ID && { telegramId: SUPER_ADMIN_TELEGRAM_CHAT_ID }),
             password: hashedPassword,
             role: 'SUPER_ADMIN',
             department: 'Executive Management'
         }
     });
     console.log(`Initial Super Admin created for ${superAdminEmail}.`);
+}
+
+async function bindSuperAdminTelegramAccount(superAdmin) {
+    if (!SUPER_ADMIN_TELEGRAM_CHAT_ID) return;
+    if (!/^\d+$/.test(SUPER_ADMIN_TELEGRAM_CHAT_ID)) {
+        throw new Error('SUPER_ADMIN_TELEGRAM_CHAT_ID must be a numeric Telegram chat ID.');
+    }
+    if (superAdmin.telegramId === SUPER_ADMIN_TELEGRAM_CHAT_ID) return;
+
+    const existingBinding = await prisma.user.findUnique({
+        where: { telegramId: SUPER_ADMIN_TELEGRAM_CHAT_ID },
+        select: { id: true }
+    });
+    if (existingBinding && existingBinding.id !== superAdmin.id) {
+        throw new Error('The configured Super Admin Telegram ID is already linked to another user.');
+    }
+
+    await prisma.user.update({
+        where: { id: superAdmin.id },
+        data: { telegramId: SUPER_ADMIN_TELEGRAM_CHAT_ID }
+    });
+    console.log('Super Admin Telegram account binding configured.');
 }
 
 function buildApprovalChain(originDepartment, targetDepartment, requiresExecutiveApproval = false) {
@@ -789,6 +854,22 @@ app.post('/api/users', async (req, res) => {
 });
 
 // Get All Users API
+app.post('/api/admin/telegram/test', requireAdminAuthentication, async (req, res) => {
+  const result = await notifySuperAdmin([
+    '✅ [TELEGRAM TEST]',
+    'Centralized Telegram notifications are reachable.',
+    `Triggered by admin user #${req.approverId}`,
+    `Timestamp: ${new Date().toISOString()}`
+  ].join('\n'));
+
+  if (!result.ok) {
+    return res.status(result.error?.startsWith('Set SUPER_ADMIN_TELEGRAM_CHAT_ID') ||
+      result.error?.includes('is not configured') ? 503 : 502)
+      .json({ error: result.error || 'Telegram test notification could not be delivered.' });
+  }
+  return res.json({ message: 'Telegram test notification sent successfully.' });
+});
+
 app.get('/api/users', requireAdminAuthentication, async (req, res) => {
     try {
         const users = await prisma.user.findMany({

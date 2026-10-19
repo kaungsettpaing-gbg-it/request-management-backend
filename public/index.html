@@ -231,6 +231,10 @@
 
             <div class="card" id="userManagementCard" style="display: none; border-left: 5px solid #9333ea;">
                 <h3>👥 PoLP & Temporary Time-Bound Access Elevation</h3>
+                <div style="margin-bottom: 12px;">
+                    <button type="button" onclick="testTelegramNotifications()">Send Telegram Test</button>
+                    <span id="telegramTestResult" role="status" aria-live="polite"></span>
+                </div>
                 <div style="overflow-x: auto;">
                     <table id="userTable">
                         <thead>
@@ -677,6 +681,22 @@
                     cell.colSpan = 6;
                     cell.textContent = 'Unable to load users: ' + err.message;
                 }
+            }
+        }
+
+        async function testTelegramNotifications() {
+            const result = document.getElementById('telegramTestResult');
+            result.textContent = 'Sending test notification...';
+            try {
+                const response = await fetch('/api/admin/telegram/test', {
+                    method: 'POST',
+                    headers: { Authorization: 'Bearer ' + sessionToken }
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Telegram test failed.');
+                result.textContent = data.message;
+            } catch (error) {
+                result.textContent = 'Telegram test failed: ' + error.message;
             }
         }
 
