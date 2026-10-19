@@ -3,17 +3,23 @@
 Configure these Railway variables:
 
 - `TELEGRAM_BOT_TOKEN`: the bot token from BotFather.
-- `TELEGRAM_BOT_USERNAME`: the bot username without `@`.
-- `TELEGRAM_WEBHOOK_SECRET`: a random 1-256 character value containing only
-  letters, digits, `_`, or `-`.
-- `TELEGRAM_WEBHOOK_URL`: `https://<your-railway-domain>/api/telegram/webhook`.
+- `TELEGRAM_BOT_USERNAME`: the bot username without `@` (defaults to
+  `Telegbg_Bot`).
+- `RAILWAY_PUBLIC_DOMAIN`: Railway normally provides this automatically for a
+  public service. The app uses it to construct the webhook URL.
+- `TELEGRAM_WEBHOOK_SECRET`: optional; when omitted, the app derives a stable
+  secret from `JWT_SECRET`.
+- `TELEGRAM_WEBHOOK_URL`: optional override for
+  `https://<your-railway-domain>/api/telegram/webhook`.
 - `SUPER_ADMIN_TELEGRAM_CHAT_ID`: optional when a Super Admin has linked their
   Telegram account in the database.
 
 On app startup, the server validates the bot with `getMe` and configures the
 webhook using Telegram's `setWebhook`. The app's `/api/telegram/webhook` route
 accepts updates only when the `X-Telegram-Bot-Api-Secret-Token` header matches
-`TELEGRAM_WEBHOOK_SECRET`. Never expose the bot token in a URL, source control,
+the configured or derived webhook secret. Only the bot token is mandatory when
+Railway provides `RAILWAY_PUBLIC_DOMAIN`; a custom deployment must set
+`TELEGRAM_WEBHOOK_URL`. Never expose the bot token in a URL, source control,
 shell history, or shared logs. The Telegram status endpoint reports whether the
 bot is reachable and whether its webhook is configured.
 

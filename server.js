@@ -164,8 +164,13 @@ async function uploadAttachmentToTelegram(file) {
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '') || 'Telegbg_Bot';
 const SUPER_ADMIN_TELEGRAM_CHAT_ID = process.env.SUPER_ADMIN_TELEGRAM_CHAT_ID;
-const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
-const TELEGRAM_WEBHOOK_URL = process.env.TELEGRAM_WEBHOOK_URL;
+const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET ||
+  deriveTelegramWebhookSecret(process.env.JWT_SECRET);
+const RAILWAY_PUBLIC_DOMAIN = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
+const TELEGRAM_WEBHOOK_URL = resolveTelegramWebhookUrl(
+  process.env.TELEGRAM_WEBHOOK_URL,
+  RAILWAY_PUBLIC_DOMAIN
+);
 const TELEGRAM_LINK_TOKEN_TTL_MS = 10 * 60 * 1000;
 let cachedSuperAdminChatId = null;
 let monthlyReportCronTask = null;
@@ -181,6 +186,29 @@ const ADMIN_ASSIGNABLE_ROLES = [
   ...SELF_ASSIGNABLE_ROLES, 'MANAGER', 'DGM', 'GM', 'ADMIN'
 ];
 const DEPARTMENT_APPROVER_ROLES = ['MANAGER', 'SUPERVISOR'];
+
+function deriveTelegramWebhookSecret(jwtSecretValue) {
+  if (typeof jwtSecretValue !== 'string' || !jwtSecretValue) return null;
+  return crypto.createHmac('sha256', jwtSecretValue)
+    .update('request-management-telegram-webhook')
+    .digest('hex');
+}
+
+function resolveTelegramWebhookUrl(configuredUrl, railwayPublicDomain) {
+  if (typeof configuredUrl === 'string' && configuredUrl.trim()) {
+    return configuredUrl.trim();
+  }
+  if (typeof railwayPublicDomain !== 'string' || !railwayPublicDomain.trim()) return null;
+
+  const domain = railwayPublicDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  try {
+    const parsed = new URL(`https://${domain}`);
+    if (parsed.hostname !== domain || parsed.pathname !== '/') return null;
+    return `${parsed.origin}/api/telegram/webhook`;
+  } catch {
+    return null;
+  }
+}
 
 function isValidOnboardingProfile(department, role) {
   return USER_DEPARTMENTS.includes(department) && SELF_ASSIGNABLE_ROLES.includes(role);
@@ -288,8 +316,12 @@ async function getTelegramApiResult(method, options = {}) {
 
 async function configureTelegramWebhook() {
   telegramWebhookConfigured = false;
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_WEBHOOK_SECRET || !TELEGRAM_WEBHOOK_URL) {
-    console.warn('Telegram webhook auto-setup skipped: configure TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, and TELEGRAM_WEBHOOK_URL.');
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.warn('Telegram webhook auto-setup skipped: TELEGRAM_BOT_TOKEN is missing from the server environment.');
+    return false;
+  }
+  if (!TELEGRAM_WEBHOOK_SECRET || !TELEGRAM_WEBHOOK_URL) {
+    console.warn('Telegram webhook auto-setup skipped: configure TELEGRAM_WEBHOOK_URL or Railway RAILWAY_PUBLIC_DOMAIN.');
     return false;
   }
   let webhookUrl;
@@ -341,15 +373,15 @@ function safeEqualStrings(first, second) {
 
 app.post('/api/telegram/link', requireApprovalAuthentication, async (req, res) => {
   try {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_BOT_USERNAME ||
-        !TELEGRAM_WEBHOOK_SECRET || !TELEGRAM_WEBHOOK_URL) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_WEBHOOK_SECRET ||
+        !TELEGRAM_WEBHOOK_URL || !TELEGRAM_BOT_USERNAME) {
       const error = new Error(
-        'Telegram linking requires TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME, TELEGRAM_WEBHOOK_SECRET, and TELEGRAM_WEBHOOK_URL.'
+        'Telegram linking needs a bot token and a public webhook URL. Set TELEGRAM_BOT_TOKEN and RAILWAY_PUBLIC_DOMAIN or TELEGRAM_WEBHOOK_URL.'
       );
       console.error('Unable to create Telegram account link:', error.message);
       res.locals.systemError = error;
       return res.status(500).json({
-        error: 'Telegram linking is not configured correctly. Please contact an administrator.'
+        error: 'Telegram bot credentials or public webhook URL are missing. Please contact an administrator.'
       });
     }
     if (!await ensureTelegramWebhookConfigured()) {
@@ -2521,6 +2553,8 @@ module.exports = {
   createTelegramLinkToken,
   createTelegramDeepLink,
   parseTelegramStartPayload,
+  deriveTelegramWebhookSecret,
+  resolveTelegramWebhookUrl,
   getRequestAmount,
   formatRequestNotification,
   formatTelegramField,

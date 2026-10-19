@@ -5,6 +5,7 @@ const {
   ADMIN_ASSIGNABLE_ROLES,
   createTelegramDeepLink,
   createTelegramLinkToken,
+  deriveTelegramWebhookSecret,
   escapeCsvCell,
   formatRequestNotification,
   formatTelegramField,
@@ -14,6 +15,7 @@ const {
   isValidOnboardingProfile,
   parseTelegramStartPayload,
   redactSensitiveErrorText,
+  resolveTelegramWebhookUrl,
   safeAttachmentFileName,
   SELF_ASSIGNABLE_ROLES,
   splitTelegramMessage,
@@ -75,6 +77,25 @@ test('creates short opaque Telegram deep-link tokens and accepts only valid star
   assert.equal(parseTelegramStartPayload('/start'), null);
   assert.equal(parseTelegramStartPayload('/start user_42'), null);
   assert.equal(parseTelegramStartPayload(`/start ${first.token} extra`), null);
+});
+
+test('derives stable webhook configuration from Railway domain and JWT secret', () => {
+  assert.equal(
+    resolveTelegramWebhookUrl('', 'request-app.up.railway.app'),
+    'https://request-app.up.railway.app/api/telegram/webhook'
+  );
+  assert.equal(
+    resolveTelegramWebhookUrl('https://custom.example/api/telegram/webhook', 'ignored.up.railway.app'),
+    'https://custom.example/api/telegram/webhook'
+  );
+  assert.equal(resolveTelegramWebhookUrl('', 'not a domain/path'), null);
+  assert.equal(resolveTelegramWebhookUrl('', ''), null);
+
+  const secret = deriveTelegramWebhookSecret('stable-jwt-secret');
+  assert.match(secret, /^[a-f0-9]{64}$/);
+  assert.equal(deriveTelegramWebhookSecret('stable-jwt-secret'), secret);
+  assert.notEqual(deriveTelegramWebhookSecret('different-jwt-secret'), secret);
+  assert.equal(deriveTelegramWebhookSecret(''), null);
 });
 
 test('formats request notifications with amount and requester details', () => {
