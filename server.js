@@ -764,6 +764,7 @@ function getRequestAmount(extraFields) {
 }
 
 function formatRequestNotification(request, status) {
+  const requesterDepartment = request.user?.department || request.requesterDepartment;
   return [
     formatRequestStatusHeader(status),
     `Request ID: ${formatTelegramField(request.id, 40)}`,
@@ -773,10 +774,20 @@ function formatRequestNotification(request, status) {
       request.user?.name || request.user?.telegramFirstName || 'Unknown',
       160
     )}`,
-    `Department: ${formatTelegramField(request.user?.department, 120)}`,
+    `Requester Department: ${formatTelegramField(requesterDepartment, 120)}`,
+    `Target Department: ${formatTelegramField(request.targetDepartment, 120)}`,
     `Amount: ${getRequestAmount(request.extraFields)}`,
     `Timestamp: ${new Date().toISOString()}`
   ].join('\n');
+}
+
+function getRequestNotificationDepartments(request) {
+  return [...new Set([
+    request.user?.department || request.requesterDepartment,
+    request.targetDepartment
+  ].map(department => String(department || '').trim())
+    .filter(Boolean)
+    .map(department => department.toLocaleLowerCase()))];
 }
 
 function getRequestStatusDetails(status) {
@@ -835,46 +846,69 @@ async function notifyTelegramChats(chatIds, message) {
   });
 }
 
-async function notifyRequestManagers(request) {
+async function notifyRequestDepartments(request, status = request.status) {
   if (!TELEGRAM_BOT_TOKEN) {
     console.error('Telegram notification skipped: TELEGRAM_BOT_TOKEN is not configured.');
     return;
   }
-  const managers = await prisma.user.findMany({
-    where: {
-      role: { in: ['ADMIN', 'SUPER_ADMIN', 'MANAGER', 'GM', 'DGM'] },
-      telegramId: { not: null }
-    },
-    select: { telegramId: true }
-  });
-  await notifyTelegramChats(
-    managers.map(manager => manager.telegramId),
-    formatRequestNotification(request, request.status)
-  );
-}
+  let requester = request.user;
+  if (!requester && request.userId) {
+    try {
+      requester = await prisma.user.findUnique({
+        where: { id: request.userId },
+        select: {
+          telegramId: true,
+          telegramFirstName: true,
+          name: true,
+          department: true
+        }
+      });
+    } catch (error) {
+      console.error(`Unable to look up requester department for request ${request.id}:`, error.message);
+    }
+  }
 
-async function notifyRequestOwner(request, status) {
-  if (!TELEGRAM_BOT_TOKEN) {
-    console.error('Telegram notification skipped: TELEGRAM_BOT_TOKEN is not configured.');
-    return;
-  }
-  const requester = await prisma.user.findUnique({
-    where: { id: request.userId },
-    select: {
-      telegramId: true,
-      telegramFirstName: true,
-      name: true,
-      department: true
+  const notificationRequest = {
+    ...request,
+    user: requester,
+    requesterDepartment: requester?.department || request.requesterDepartment
+  };
+  const departmentNames = getRequestNotificationDepartments(notificationRequest);
+  const recipientLookups = await Promise.allSettled(departmentNames.map(department =>
+    prisma.user.findMany({
+      where: {
+        department: { equals: department, mode: 'insensitive' },
+        telegramId: { not: null }
+      },
+      select: { telegramId: true }
+    })
+  ));
+  const chatIds = [];
+  recipientLookups.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      chatIds.push(...result.value.map(user => user.telegramId));
+    } else {
+      console.error(
+        `Unable to find Telegram recipients in the ${departmentNames[index]} department for request ${request.id}:`,
+        result.reason?.message || result.reason
+      );
     }
   });
-  if (!requester?.telegramId) {
-    console.warn(`Telegram notification skipped for request ${request.id}: requester has no linked Telegram account.`);
+
+  const message = formatRequestNotification(notificationRequest, status);
+  const validChatIds = [...new Set(chatIds
+    .filter(chatId => /^\d+$/.test(String(chatId)))
+    .map(String))];
+  if (validChatIds.length) {
+    await notifyTelegramChats(validChatIds, message);
     return;
   }
-  await notifyTelegramChats(
-    [requester.telegramId],
-    formatRequestNotification({ ...request, user: requester }, status)
-  );
+
+  console.warn(`No linked Telegram accounts found in either request department for request ${request.id}; using Super Admin fallback.`);
+  const fallback = await notifySuperAdmin(message);
+  if (!fallback.ok) {
+    console.error(`Unable to send department-fallback Telegram notification for request ${request.id}:`, fallback.error);
+  }
 }
 
 async function generateMonthlyReport(period) {
@@ -1886,8 +1920,8 @@ app.post('/api/requests', requireCompletedProfile, uploadRequestAttachment, asyn
         approvalSteps: { orderBy: { sequence: 'asc' } }
       }
     });
-    void notifyRequestManagers(newRequest).catch(error => {
-      console.error(`Unable to send new-request Telegram notifications for request ${newRequest.id}:`, error);
+    void notifyRequestDepartments(newRequest).catch(error => {
+      console.error(`Unable to send department Telegram notifications for request ${newRequest.id}:`, error);
     });
     void notifyRequestActivity('📝 [NEW REQUEST]', newRequest);
     return res.status(201).json(newRequest);
@@ -2407,10 +2441,9 @@ async function handleRequestApproval(req, res) {
     });
 
     void notifyRequestActivity('[STATUS CHANGE]', updatedRequest);
-    if (updatedRequest.status !== request.status &&
-        ['APPROVED', 'REJECTED'].includes(updatedRequest.status)) {
-      void notifyRequestOwner(updatedRequest, updatedRequest.status).catch(error => {
-        console.error(`Unable to send status Telegram notification for request ${requestId}:`, error);
+    if (updatedRequest.status !== request.status) {
+      void notifyRequestDepartments(updatedRequest, updatedRequest.status).catch(error => {
+        console.error(`Unable to send department Telegram notifications for request ${requestId}:`, error);
       });
     }
     return res.json({ message: 'Request approval updated.', request: updatedRequest });
@@ -2588,6 +2621,7 @@ module.exports = {
   formatRequestNotification,
   formatRequestStatusHeader,
   formatRequestStatusLabel,
+  getRequestNotificationDepartments,
   formatTelegramField,
   escapeCsvCell,
   formatServerError,

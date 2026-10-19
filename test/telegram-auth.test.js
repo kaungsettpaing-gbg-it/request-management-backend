@@ -12,6 +12,7 @@ const {
   formatRequestStatusLabel,
   formatTelegramField,
   formatServerError,
+  getRequestNotificationDepartments,
   getAttachmentContentDisposition,
   isAllowedAttachment,
   isValidOnboardingProfile,
@@ -100,24 +101,26 @@ test('derives stable webhook configuration from Railway domain and JWT secret', 
   assert.equal(deriveTelegramWebhookSecret(''), null);
 });
 
-test('formats request notifications with dynamic status headers and request details', () => {
+test('formats request notifications with dynamic status headers and both departments', () => {
   const timestampBefore = Date.now();
   const message = formatRequestNotification({
     id: 42,
     title: 'Office supplies',
+    targetDepartment: 'IT',
     extraFields: JSON.stringify({ amount: '1250000' }),
     user: { name: 'Aye Aye', department: 'Finance' }
   }, 'APPROVED');
-  assert.deepEqual(message.split('\n').slice(0, 7), [
+  assert.deepEqual(message.split('\n').slice(0, 8), [
     '[✅ REQUEST APPROVED]',
     'Request ID: 42',
     'Title: Office supplies',
     'Status: ✅ APPROVED',
     'Requester: Aye Aye',
-    'Department: Finance',
+    'Requester Department: Finance',
+    'Target Department: IT',
     'Amount: 1,250,000 MMK'
   ]);
-  assert.match(message.split('\n')[7], /^Timestamp: \d{4}-\d\d-\d\dT/);
+  assert.match(message.split('\n')[8], /^Timestamp: \d{4}-\d\d-\d\dT/);
   assert.ok(Date.now() >= timestampBefore);
   assert.equal(formatRequestStatusHeader('APPROVED'), '[✅ REQUEST APPROVED]');
   assert.equal(formatRequestStatusHeader('REJECTED'), '[❌ REQUEST REJECTED]');
@@ -125,6 +128,15 @@ test('formats request notifications with dynamic status headers and request deta
   assert.equal(formatRequestStatusLabel('APPROVED'), '✅ APPROVED');
   assert.equal(formatRequestStatusLabel('REJECTED'), '❌ REJECTED');
   assert.equal(formatRequestStatusLabel('PENDING'), '⏳ PENDING');
+
+  assert.deepEqual(getRequestNotificationDepartments({
+    user: { department: ' Finance ' },
+    targetDepartment: 'IT'
+  }), ['finance', 'it']);
+  assert.deepEqual(getRequestNotificationDepartments({
+    user: { department: 'Finance' },
+    targetDepartment: ' finance '
+  }), ['finance']);
 });
 
 test('keeps Telegram notification fields single-line and bounded', () => {
@@ -136,13 +148,14 @@ test('keeps Telegram notification fields single-line and bounded', () => {
     title: 'Office supplies\nStatus: APPROVED',
     extraFields: JSON.stringify({ amount: '1250000' }),
     user: { name: 'Aye Aye\nRequester: Fake User', department: 'Finance' }
-  }, 'PENDING').split('\n').slice(0, 7), [
+  }, 'PENDING').split('\n').slice(0, 8), [
     '[⏳ REQUEST PENDING]',
     'Request ID: 42',
     'Title: Office supplies Status: APPROVED',
     'Status: ⏳ PENDING',
     'Requester: Aye Aye Requester: Fake User',
-    'Department: Finance',
+    'Requester Department: Finance',
+    'Target Department: Not specified',
     'Amount: 1,250,000 MMK'
   ]);
 });
