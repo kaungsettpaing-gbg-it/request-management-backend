@@ -45,7 +45,17 @@ const upload = multer({ storage });
 
 // Telegram Bot Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '') || '';
+const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '') || 'Telegbg_Bot';
+const USER_DEPARTMENTS = [
+  'HR', 'Finance', 'IT', 'Cashier', 'Sales & Marketing',
+  'Warehouse', 'Production', 'Admin', 'Executive Management'
+];
+const SELF_ASSIGNABLE_ROLES = ['STAFF', 'ASSISTANT'];
+const ADMIN_ASSIGNABLE_ROLES = [...SELF_ASSIGNABLE_ROLES, 'MANAGER', 'DGM', 'GM', 'ADMIN'];
+
+function isValidOnboardingProfile(department, role) {
+  return USER_DEPARTMENTS.includes(department) && SELF_ASSIGNABLE_ROLES.includes(role);
+}
 
 async function sendTelegramOTP(chatId, otpCode) {
   try {
@@ -419,14 +429,16 @@ app.post('/api/auth/telegram', async (req, res) => {
           telegramId: identity.id,
           telegramUsername: identity.username,
           telegramFirstName: identity.firstName,
-          department: 'General',
-          role: 'STAFF'
+          department: null,
+          role: null
         }
       });
     }
 
+    const requiresOnboarding = !user.department || !user.role;
     return res.json({
       token: jwt.sign({ sub: String(user.id) }, jwtSecret, { expiresIn: '8h' }),
+      requiresOnboarding,
       user: {
         id: user.id,
         name: user.name,
@@ -442,6 +454,40 @@ app.post('/api/auth/telegram', async (req, res) => {
     }
     console.error('Telegram Login Error:', error);
     return res.status(500).json({ error: 'Unable to sign in with Telegram.' });
+  }
+});
+
+app.post('/api/user/complete-profile', requireApprovalAuthentication, async (req, res) => {
+  const department = typeof req.body?.department === 'string' ? req.body.department.trim() : '';
+  const role = typeof req.body?.role === 'string' ? req.body.role.trim().toUpperCase() : '';
+
+  if (!isValidOnboardingProfile(department, role)) {
+    return res.status(400).json({
+      error: 'Choose a valid department and a permitted role. Manager and administrator roles must be assigned by an administrator.'
+    });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.approverId },
+      select: { id: true, name: true, role: true, department: true, telegramId: true, telegramUsername: true }
+    });
+    if (!user) {
+      return res.status(401).json({ error: 'The account for this session no longer exists.' });
+    }
+    if (user.role && user.department) {
+      return res.status(409).json({ error: 'Your profile has already been completed.' });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { department, role },
+      select: { id: true, name: true, role: true, department: true, telegramId: true, telegramUsername: true }
+    });
+    return res.json({ user: updatedUser });
+  } catch (error) {
+    console.error('Complete Profile Error:', error);
+    return res.status(500).json({ error: 'Unable to complete your profile.' });
   }
 });
 
@@ -522,6 +568,13 @@ app.post('/api/users', async (req, res) => {
         typeof password !== 'string' || !password.length) {
       return res.status(400).json({ error: 'Name, email, and password are required.' });
     }
+    const normalizedDepartment = typeof department === 'string' ? department.trim() : '';
+    const normalizedRole = typeof role === 'string' ? role.trim().toUpperCase() : '';
+    if (!isValidOnboardingProfile(normalizedDepartment, normalizedRole)) {
+      return res.status(400).json({
+        error: 'Choose a valid department and a permitted role. Manager and administrator roles must be assigned by an administrator.'
+      });
+    }
 
     const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
@@ -550,8 +603,8 @@ app.post('/api/users', async (req, res) => {
         name: normalizedName,
         email: normalizedEmail,
         password: hashedPassword,
-        department: department || 'General',
-        role: role || 'STAFF',
+        department: normalizedDepartment,
+        role: normalizedRole,
         telegramUsername: typeof (telegramUsername ?? telegramId) === 'string' &&
           (telegramUsername ?? telegramId).trim()
           ? (telegramUsername ?? telegramId).replace(/^@+/, '').trim().toLowerCase()
@@ -592,7 +645,7 @@ app.post('/api/users', async (req, res) => {
 });
 
 // Get All Users API
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', requireAdminAuthentication, async (req, res) => {
     try {
         const users = await prisma.user.findMany({
             where: {
@@ -618,13 +671,16 @@ app.get('/api/users', async (req, res) => {
 });
 
 // Update User
-app.patch('/api/users/:id', async (req, res) => {
+app.patch('/api/users/:id', requireAdminAuthentication, async (req, res) => {
   try {
     const { id } = req.params;
     const { role, department, telegramId, telegramUsername } = req.body;
 
     if (role === 'SUPER_ADMIN') {
       return res.status(403).json({ error: 'Super Admin role is reserved and hidden from normal user management.' });
+    }
+    if (role != null && !ADMIN_ASSIGNABLE_ROLES.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role.' });
     }
 
     const updatedUser = await prisma.user.update({
@@ -645,7 +701,7 @@ app.patch('/api/users/:id', async (req, res) => {
 });
 
 // Delete User
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', requireAdminAuthentication, async (req, res) => {
   try {
     const userId = Number(req.params.id);
     if (!Number.isSafeInteger(userId) || userId <= 0) {
@@ -689,7 +745,7 @@ app.delete('/api/users/:id', async (req, res) => {
 });
 
 // Create Request API
-app.post('/api/requests', requireApprovalAuthentication, upload.single('attachment'), async (req, res) => {
+app.post('/api/requests', requireCompletedProfile, upload.single('attachment'), async (req, res) => {
   try {
     const { title, description, category, targetDepartment, extraFields } = req.body;
     const requiresExecutiveApproval = req.body.requiresExecutiveApproval === true ||
@@ -749,7 +805,7 @@ app.post('/api/requests', requireApprovalAuthentication, upload.single('attachme
   }
 });
 
-app.get('/api/requests', requireApprovalAuthentication, async (req, res) => {
+app.get('/api/requests', requireCompletedProfile, async (req, res) => {
   try {
     const actor = await prisma.user.findUnique({
       where: { id: req.approverId },
@@ -892,6 +948,48 @@ function requireApprovalAuthentication(req, res, next) {
   }
 }
 
+async function requireCompletedProfile(req, res, next) {
+  return requireApprovalAuthentication(req, res, async () => {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.approverId },
+        select: { role: true, department: true }
+      });
+      if (!user) {
+        return res.status(401).json({ error: 'The account for this session no longer exists.' });
+      }
+      if (!user.role || !user.department) {
+        return res.status(403).json({ error: 'Complete your profile before accessing requests.' });
+      }
+      return next();
+    } catch (error) {
+      console.error('Profile Access Check Error:', error);
+      return res.status(500).json({ error: 'Unable to verify profile status.' });
+    }
+  });
+}
+
+async function requireAdminAuthentication(req, res, next) {
+  return requireApprovalAuthentication(req, res, async () => {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.approverId },
+        select: { role: true }
+      });
+      if (!user) {
+        return res.status(401).json({ error: 'The account for this session no longer exists.' });
+      }
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
+        return res.status(403).json({ error: 'Administrator access is required.' });
+      }
+      return next();
+    } catch (error) {
+      console.error('Administrator Access Check Error:', error);
+      return res.status(500).json({ error: 'Unable to verify administrator access.' });
+    }
+  });
+}
+
 async function handleRequestApproval(req, res) {
   try {
     const requestId = Number(req.params.id);
@@ -1021,11 +1119,11 @@ async function handleRequestApproval(req, res) {
   }
 }
 
-app.patch('/api/requests/:id/approval', requireApprovalAuthentication, handleRequestApproval);
+app.patch('/api/requests/:id/approval', requireCompletedProfile, handleRequestApproval);
 
-app.patch('/api/requests/:id/status', requireApprovalAuthentication, handleRequestApproval);
+app.patch('/api/requests/:id/status', requireCompletedProfile, handleRequestApproval);
 
-app.get('/api/export/requests', requireApprovalAuthentication, async (req, res) => {
+app.get('/api/export/requests', requireCompletedProfile, async (req, res) => {
   try {
     const actor = await prisma.user.findUnique({
       where: { id: req.approverId },
@@ -1098,5 +1196,6 @@ module.exports = {
   canUserSeeRequest,
   verifyTelegramLogin,
   getRequestAmount,
-  formatRequestNotification
+  formatRequestNotification,
+  isValidOnboardingProfile
 };

@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const test = require('node:test');
-const { formatRequestNotification, verifyTelegramLogin } = require('../server');
+const { formatRequestNotification, isValidOnboardingProfile, verifyTelegramLogin } = require('../server');
 
 const botToken = 'unit-test-bot-token';
 const nowSeconds = 1_800_000_000;
@@ -54,4 +54,11 @@ test('formats request notifications with amount and requester details', () => {
     'Amount: 1,250,000 MMK',
     'Requester: Aye Aye'
   ].join('\n'));
+});
+
+test('onboarding only allows recognized departments and non-privileged roles', () => {
+  assert.equal(isValidOnboardingProfile('IT', 'STAFF'), true);
+  assert.equal(isValidOnboardingProfile('Finance', 'ASSISTANT'), true);
+  assert.equal(isValidOnboardingProfile('Finance', 'ADMIN'), false);
+  assert.equal(isValidOnboardingProfile('Unknown', 'STAFF'), false);
 });

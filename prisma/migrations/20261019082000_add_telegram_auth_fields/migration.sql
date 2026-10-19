@@ -5,6 +5,9 @@ ALTER TABLE "User"
 ADD COLUMN IF NOT EXISTS "telegramUsername" TEXT,
 ADD COLUMN IF NOT EXISTS "telegramFirstName" TEXT;
 
+ALTER TABLE "User"
+ALTER COLUMN "role" DROP NOT NULL;
+
 UPDATE "User"
 SET "telegramUsername" = COALESCE("telegramUsername", LOWER(TRIM(BOTH '@' FROM "telegramId"))),
     "telegramId" = NULL

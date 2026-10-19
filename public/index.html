@@ -121,6 +121,35 @@
             </div>
         </div>
 
+        <div id="completeProfileModal" class="mfa-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="completeProfileTitle">
+            <div class="mfa-card">
+                <h3 id="completeProfileTitle">Complete Your Profile</h3>
+                <p>Select your department and position to continue. Higher access roles must be assigned by an administrator.</p>
+                <form id="completeProfileForm">
+                    <label for="onboardingDepartment"><small>Department</small></label>
+                    <select id="onboardingDepartment" required>
+                        <option value="">Select department</option>
+                        <option value="HR">HR</option>
+                        <option value="Finance">Finance</option>
+                        <option value="IT">IT & Infrastructure</option>
+                        <option value="Cashier">Cashier</option>
+                        <option value="Sales & Marketing">Sales & Marketing</option>
+                        <option value="Warehouse">Warehouse</option>
+                        <option value="Production">Production</option>
+                        <option value="Admin">Admin</option>
+                        <option value="Executive Management">Executive Management</option>
+                    </select>
+                    <label for="onboardingRole"><small>Role / Position</small></label>
+                    <select id="onboardingRole" required>
+                        <option value="">Select role</option>
+                        <option value="STAFF">Staff</option>
+                        <option value="ASSISTANT">Assistant / Supervisor</option>
+                    </select>
+                    <button type="submit" style="width: 100%; margin-top: 15px;">Complete Profile</button>
+                </form>
+            </div>
+        </div>
+
         <div id="authSection">
             <div class="auth-wrapper">
                 <div class="auth-tabs">
@@ -168,10 +197,6 @@
                             <select id="regRole">
                                 <option value="STAFF">Staff (Employee)</option>
                                 <option value="ASSISTANT">Assistant / Supervisor</option>
-                                <option value="MANAGER">Department Manager</option>
-                                <option value="DGM">Deputy General Manager (DGM)</option>
-                                <option value="GM">General Manager (GM)</option>
-                                <option value="ADMIN">Administrator</option>
                             </select>
                             <button type="submit" style="width: 100%; background: var(--success); margin-top: 15px;">Create Account</button>
                         </form>
@@ -307,6 +332,8 @@
         let pendingMfaEmail = null;
         let currentRequestTab = 'PENDING';
         let requestLoadId = 0;
+        const TELEGRAM_AUTH_ENDPOINT = '/api/auth/telegram';
+        let pendingProfileToken = null;
 
         function switchAuthTab(tab) {
             const loginContent = document.getElementById('loginTabContent');
@@ -329,17 +356,25 @@
 
         async function onTelegramAuth(telegramUser, linkAccount = false) {
             try {
-                const response = await fetch(linkAccount ? '/api/auth/telegram/link' : '/api/auth/telegram', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(linkAccount && sessionToken ? { Authorization: 'Bearer ' + sessionToken } : {})
-                    },
-                    body: JSON.stringify(telegramUser)
-                });
+                const response = await fetch(
+                    linkAccount ? `${TELEGRAM_AUTH_ENDPOINT}/link` : TELEGRAM_AUTH_ENDPOINT,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(linkAccount && sessionToken ? { Authorization: 'Bearer ' + sessionToken } : {})
+                        },
+                        body: JSON.stringify(telegramUser)
+                    }
+                );
                 const data = await response.json();
                 if (!response.ok || !data.user || (!linkAccount && !data.token)) {
                     throw new Error(data.error || 'Unable to sign in with Telegram.');
+                }
+                if (!linkAccount && data.requiresOnboarding) {
+                    pendingProfileToken = data.token;
+                    document.getElementById('completeProfileModal').style.display = 'flex';
+                    return;
                 }
                 currentUser = data.user;
                 if (linkAccount) {
@@ -564,6 +599,7 @@
         function logout() {
             currentUser = null;
             sessionToken = null;
+            pendingProfileToken = null;
             updateUI();
         }
 
@@ -620,7 +656,9 @@
 
         async function loadUsers() {
             try {
-                const res = await fetch('/api/users');
+                const res = await fetch('/api/users', {
+                    headers: { Authorization: 'Bearer ' + sessionToken }
+                });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Failed to load users.');
                 if (!Array.isArray(data)) throw new Error('The server returned an invalid user list.');
@@ -683,7 +721,10 @@
             try {
                 const res = await fetch('/api/users/' + id, {
                     method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: 'Bearer ' + sessionToken
+                    },
                     body: JSON.stringify({ department: dept, role: role })
                 });
                 if (res.ok) {
@@ -699,7 +740,10 @@
             try {
                 const res = await fetch('/api/users/' + id, {
                     method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: 'Bearer ' + sessionToken
+                    },
                     body: JSON.stringify({ accessExpiry: expiryDate })
                 });
                 if (res.ok) {
@@ -713,7 +757,10 @@
         async function deleteUser(id) {
             if (!confirm("Are you sure you want to delete this user?")) return;
             try {
-                const res = await fetch('/api/users/' + id, { method: 'DELETE' });
+                const res = await fetch('/api/users/' + id, {
+                    method: 'DELETE',
+                    headers: { Authorization: 'Bearer ' + sessionToken }
+                });
                 if (res.ok) loadUsers();
             } catch(err) {
                 alert("Error: " + err.message);
@@ -868,6 +915,41 @@
             renderDynamicFields();
             loadTelegramWidgets().catch(error => {
                 console.error('Telegram widget initialization failed:', error);
+            });
+
+            document.getElementById('completeProfileForm')?.addEventListener('submit', async event => {
+                event.preventDefault();
+                const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+                if (submitButton) submitButton.disabled = true;
+                try {
+                    const response = await fetch('/api/user/complete-profile', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: 'Bearer ' + pendingProfileToken
+                        },
+                        body: JSON.stringify({
+                            department: document.getElementById('onboardingDepartment').value,
+                            role: document.getElementById('onboardingRole').value
+                        })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.user) {
+                        throw new Error(data.error || 'Unable to complete your profile.');
+                    }
+                    currentUser = data.user;
+                    sessionToken = pendingProfileToken;
+                    pendingProfileToken = null;
+                    document.getElementById('completeProfileModal').style.display = 'none';
+                    event.currentTarget.reset();
+                    updateUI();
+                    renderDynamicFields();
+                    loadRequests();
+                } catch (error) {
+                    alert('Profile Error: ' + error.message);
+                } finally {
+                    if (submitButton) submitButton.disabled = false;
+                }
             });
 
             const userForm = document.getElementById('userForm');

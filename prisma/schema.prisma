@@ -13,7 +13,7 @@ model User {
   password      String
   name          String?
   department    String?
-  role          String                @default("USER")
+  role          String?               @default("USER")
   telegramId        String?               @unique
   telegramUsername  String?
   telegramFirstName String?
