@@ -6,6 +6,7 @@ const {
   getUtcMonthPeriod,
   summarizeRequests
 } = require('../lib/monthly-report');
+const { createMonthlyReportCsv } = require('../server');
 
 test('monthly periods use UTC calendar-month boundaries, including year rollover', () => {
   const period = getUtcMonthPeriod(new Date('2026-01-01T00:00:00.000Z'), -1);
@@ -34,6 +35,34 @@ test('monthly report summaries count all three request statuses', () => {
     approvedCount: 0,
     rejectedCount: 0
   });
+});
+
+test('monthly report CSV includes summary and dashboard request columns', () => {
+  const createdAt = new Date('2026-10-05T09:30:00.000Z');
+  const csv = createMonthlyReportCsv({
+    monthKey: '2026-10',
+    totalRequests: 1,
+    approvedCount: 1,
+    rejectedCount: 0,
+    pendingCount: 0,
+    generatedAt: new Date('2026-10-19T08:00:00.000Z')
+  }, [{
+    id: 12,
+    title: 'Laptop, replacement',
+    status: 'APPROVED',
+    createdAt,
+    updatedAt: new Date('2026-10-05T12:00:00.000Z'),
+    user: { name: 'User A', department: 'IT' },
+    approvalSteps: [{
+      status: 'APPROVED',
+      actedAt: new Date('2026-10-05T12:00:00.000Z'),
+      approvedBy: { name: 'Manager A' }
+    }]
+  }]);
+
+  assert.match(csv, /^"Report Month","2026-10"/);
+  assert.match(csv, /"Request ID","Title","Requested By","Department","Status","Approved\/Rejected By","Created Date","Resolved Date"/);
+  assert.match(csv, /"12","Laptop, replacement","User A","IT","✅ Approved","Manager A","2026-10-05T09:30:00\.000Z","2026-10-05T12:00:00\.000Z"/);
 });
 
 test('monthly request mapping includes requester, reviewer, and resolution date', () => {

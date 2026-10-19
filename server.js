@@ -175,6 +175,7 @@ const TELEGRAM_LINK_TOKEN_TTL_MS = 10 * 60 * 1000;
 let cachedSuperAdminChatId = null;
 let monthlyReportCronTask = null;
 let monthlyReportJobRunning = false;
+let monthlyReportManualJobRunning = false;
 let telegramWebhookConfigured = false;
 let telegramWebhookSetupPromise = null;
 const USER_DEPARTMENTS = [
@@ -932,13 +933,13 @@ async function generateMonthlyReport(period) {
   return { report, requests };
 }
 
-async function sendMonthlyReportToSuperAdmin(report, requests) {
+async function sendMonthlyReportToSuperAdmin(report, requests, { force = false } = {}) {
   const claimTime = new Date();
   const claimExpiredBefore = new Date(claimTime.getTime() - 10 * 60 * 1000);
   const claim = await prisma.monthlyReport.updateMany({
     where: {
       monthKey: report.monthKey,
-      telegramSentAt: null,
+      ...(!force && { telegramSentAt: null }),
       OR: [
         { telegramClaimedAt: null },
         { telegramClaimedAt: { lt: claimExpiredBefore } }
@@ -946,8 +947,9 @@ async function sendMonthlyReportToSuperAdmin(report, requests) {
     },
     data: { telegramClaimedAt: claimTime }
   });
-  if (claim.count !== 1) return false;
+  if (claim.count !== 1) return { delivered: false, deliveryCount: 0, skipped: true };
 
+  let deliveryCount = 0;
   try {
     if (!TELEGRAM_BOT_TOKEN) {
       throw new Error('TELEGRAM_BOT_TOKEN is not configured.');
@@ -962,13 +964,15 @@ async function sendMonthlyReportToSuperAdmin(report, requests) {
         await new Promise(resolve => setTimeout(resolve, 1100));
       }
       await sendTelegramMessage(chatId, message, 'HTML');
+      deliveryCount += 1;
     }
     await prisma.monthlyReport.update({
       where: { monthKey: report.monthKey },
       data: { telegramSentAt: new Date(), telegramClaimedAt: null }
     });
-    return true;
+    return { delivered: true, deliveryCount: messages.length, skipped: false };
   } catch (error) {
+    error.deliveryCount = deliveryCount;
     await prisma.monthlyReport.updateMany({
       where: { monthKey: report.monthKey, telegramClaimedAt: claimTime },
       data: { telegramClaimedAt: null }
@@ -2467,6 +2471,59 @@ function escapeCsvCell(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+function createMonthlyReportCsv(report, requests) {
+  const rows = [
+    ['Report Month', report.monthKey],
+    ['Total Requests', report.totalRequests],
+    ['Approved', report.approvedCount],
+    ['Rejected', report.rejectedCount],
+    ['Pending', report.pendingCount],
+    ['Generated At (UTC)', report.generatedAt.toISOString()],
+    [],
+    [
+      'Request ID',
+      'Title',
+      'Requested By',
+      'Department',
+      'Status',
+      'Approved/Rejected By',
+      'Created Date',
+      'Resolved Date'
+    ],
+    ...requests.map(request => {
+      const details = getMonthlyRequestDetails(request);
+      return [
+        details.requestId,
+        details.title,
+        details.requestedBy,
+        details.department,
+        details.status,
+        details.approvedRejectedBy,
+        details.createdDate?.toISOString() || '',
+        details.resolvedDate?.toISOString() || ''
+      ];
+    })
+  ];
+  return rows.map(row => row.map(escapeCsvCell).join(',')).join('\r\n');
+}
+
+app.get('/api/reports/monthly.csv', requireAdminAuthentication, async (req, res) => {
+  try {
+    const period = getUtcMonthPeriod();
+    const { report, requests } = await generateMonthlyReport(period);
+    res.set({
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="monthly-request-report-${report.monthKey}.csv"`,
+      'Cache-Control': 'private, no-store'
+    });
+    return res.send(createMonthlyReportCsv(report, requests));
+  } catch (error) {
+    console.error('Monthly CSV report export failed:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to generate the monthly CSV report.' });
+  }
+});
+
 app.get('/api/reports/monthly', requireSuperAdminAuthentication, async (req, res) => {
   try {
     const period = getUtcMonthPeriod();
@@ -2517,6 +2574,71 @@ app.get('/api/reports/monthly', requireSuperAdminAuthentication, async (req, res
     console.error('Monthly report export failed:', error);
     res.locals.systemError = error;
     return res.status(500).json({ error: 'Unable to generate the monthly report.' });
+  }
+});
+
+app.post('/api/reports/trigger-monthly', requireAdminAuthentication, async (req, res) => {
+  if (monthlyReportManualJobRunning) {
+    return res.status(409).json({
+      status: 'already_running',
+      error: 'A manual monthly report is already being generated.'
+    });
+  }
+
+  monthlyReportManualJobRunning = true;
+  let generatedReport;
+  try {
+    const period = getUtcMonthPeriod();
+    const generated = await generateMonthlyReport(period);
+    generatedReport = generated.report;
+    const reportMetadata = {
+      monthKey: generatedReport.monthKey,
+      periodStart: generatedReport.periodStart.toISOString(),
+      periodEnd: generatedReport.periodEnd.toISOString(),
+      generatedAt: generatedReport.generatedAt.toISOString(),
+      totalRequests: generatedReport.totalRequests,
+      approvedCount: generatedReport.approvedCount,
+      rejectedCount: generatedReport.rejectedCount,
+      pendingCount: generatedReport.pendingCount,
+      downloadUrl: '/api/reports/monthly.csv'
+    };
+
+    try {
+      const delivery = await sendMonthlyReportToSuperAdmin(
+        generatedReport,
+        generated.requests,
+        { force: true }
+      );
+      return res.json({
+        status: delivery.delivered ? 'completed' : 'delivery_in_progress',
+        report: reportMetadata,
+        telegram: {
+          status: delivery.delivered ? 'sent' : 'already_in_progress',
+          deliveryCount: delivery.deliveryCount
+        }
+      });
+    } catch (error) {
+      console.error(`Manual monthly report ${generatedReport.monthKey} Telegram delivery failed:`, error);
+      res.locals.systemError = error;
+      return res.status(502).json({
+        status: 'generated_delivery_failed',
+        report: reportMetadata,
+        telegram: {
+          status: 'failed',
+          deliveryCount: error.deliveryCount || 0,
+          error: 'Report was generated, but Telegram delivery failed. Check server logs and bot configuration.'
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Manual monthly report generation failed:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({
+      status: 'generation_failed',
+      error: 'Unable to generate the monthly report.'
+    });
+  } finally {
+    monthlyReportManualJobRunning = false;
   }
 });
 
@@ -2617,6 +2739,7 @@ module.exports = {
   parseTelegramStartPayload,
   deriveTelegramWebhookSecret,
   resolveTelegramWebhookUrl,
+  createMonthlyReportCsv,
   getRequestAmount,
   formatRequestNotification,
   formatRequestStatusHeader,
