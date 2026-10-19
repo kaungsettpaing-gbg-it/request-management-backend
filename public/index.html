@@ -103,6 +103,89 @@
         button:hover { background: var(--primary-hover); }
         
         .card { background: #1e293b; padding: 25px; border-radius: 12px; margin-bottom: 25px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .feedback-launcher {
+            position: fixed;
+            z-index: 20;
+            right: 24px;
+            bottom: 24px;
+            border: 1px solid rgba(255,255,255,0.28);
+            border-radius: 999px;
+            padding: 13px 20px;
+            background: linear-gradient(135deg, #818cf8, #4f46e5);
+            box-shadow: 0 12px 32px rgba(79,70,229,0.42), inset 0 1px 0 rgba(255,255,255,0.3);
+            color: #fff;
+            font-size: 15px;
+        }
+        .feedback-launcher:hover { transform: translateY(-2px); }
+        .feedback-modal {
+            position: fixed;
+            z-index: 30;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(2,6,23,0.72);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+        }
+        .feedback-dialog {
+            position: relative;
+            width: min(100%, 500px);
+            padding: 28px;
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 20px;
+            background:
+                radial-gradient(ellipse at 90% 0%, rgba(129,140,248,0.2), transparent 45%),
+                linear-gradient(145deg, rgba(30,41,59,0.94), rgba(15,23,42,0.94));
+            box-shadow: 0 28px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.12);
+            -webkit-backdrop-filter: blur(28px) saturate(150%);
+            backdrop-filter: blur(28px) saturate(150%);
+        }
+        .feedback-dialog h2 { margin: 0 36px 8px 0; font-size: 23px; }
+        .feedback-dialog p { margin: 0 0 22px; color: var(--text-muted); }
+        .feedback-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            padding: 7px 11px;
+            background: rgba(255,255,255,0.09);
+            font-size: 20px;
+        }
+        .feedback-stars { display: flex; gap: 8px; margin: 7px 0 4px; }
+        .feedback-star {
+            padding: 2px;
+            background: transparent;
+            color: #64748b;
+            font-size: 34px;
+            line-height: 1;
+        }
+        .feedback-star:hover { background: transparent; }
+        .feedback-star.is-selected { color: #fbbf24; }
+        .feedback-rating-label { min-height: 20px; color: var(--text-muted); font-size: 13px; }
+        .feedback-dialog textarea { min-height: 130px; resize: vertical; }
+        .feedback-submit { width: 100%; margin-top: 5px; }
+        .feedback-toast {
+            position: fixed;
+            z-index: 40;
+            right: 24px;
+            bottom: 86px;
+            max-width: min(420px, calc(100vw - 48px));
+            padding: 14px 18px;
+            border: 1px solid rgba(74,222,128,0.4);
+            border-radius: 12px;
+            background: rgba(15,23,42,0.94);
+            box-shadow: 0 12px 34px rgba(0,0,0,0.35);
+            color: #bbf7d0;
+        }
+        .feedback-toast.is-error {
+            border-color: rgba(248,113,113,0.45);
+            color: #fecaca;
+        }
+        @media (max-width: 520px) {
+            .feedback-launcher { right: 16px; bottom: 16px; }
+            .feedback-dialog { padding: 24px 20px; }
+        }
         #userManagementCard {
             background:
                 linear-gradient(145deg, rgba(255,255,255,0.065), transparent 45%),
@@ -567,6 +650,36 @@
         </div>
     </div>
 
+    <button id="feedbackLauncher" class="feedback-launcher" type="button" style="display: none;" onclick="openFeedbackModal()">💬 Feedback</button>
+    <div id="feedbackModal" class="feedback-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="feedbackTitle">
+        <div class="feedback-dialog">
+            <button class="feedback-close" type="button" aria-label="Close feedback form" onclick="closeFeedbackModal()">×</button>
+            <h2 id="feedbackTitle">Share your feedback</h2>
+            <p>Your suggestions help us improve the experience.</p>
+            <form id="feedbackForm">
+                <strong id="feedbackRatingPrompt">How would you rate your experience?</strong>
+                <div id="feedbackStars" class="feedback-stars" role="group" aria-labelledby="feedbackRatingPrompt">
+                    <button class="feedback-star" type="button" data-rating="1" aria-label="1 star" aria-pressed="false">★</button>
+                    <button class="feedback-star" type="button" data-rating="2" aria-label="2 stars" aria-pressed="false">★</button>
+                    <button class="feedback-star" type="button" data-rating="3" aria-label="3 stars" aria-pressed="false">★</button>
+                    <button class="feedback-star" type="button" data-rating="4" aria-label="4 stars" aria-pressed="false">★</button>
+                    <button class="feedback-star" type="button" data-rating="5" aria-label="5 stars" aria-pressed="false">★</button>
+                </div>
+                <div id="feedbackRatingLabel" class="feedback-rating-label" aria-live="polite">Select a rating.</div>
+                <label for="feedbackCategory"><strong>Category</strong></label>
+                <select id="feedbackCategory" required>
+                    <option value="UI/UX Improvement">UI/UX Improvement</option>
+                    <option value="Bug Report">Bug Report</option>
+                    <option value="General Suggestion">General Suggestion</option>
+                </select>
+                <label for="feedbackMessage"><strong>Your message</strong></label>
+                <textarea id="feedbackMessage" maxlength="3000" placeholder="Tell us what you think..." required></textarea>
+                <button id="feedbackSubmit" class="feedback-submit" type="submit">Submit feedback</button>
+            </form>
+        </div>
+    </div>
+    <div id="feedbackToast" class="feedback-toast" role="status" aria-live="polite" style="display: none;"></div>
+
     <script>
         let currentUser = null;
         let sessionToken = null;
@@ -580,6 +693,8 @@
         const SESSION_STORAGE_KEY = 'requestManagementSession';
         let pendingProfileToken = null;
         let registrationTelegramLink = null;
+        let selectedFeedbackRating = 0;
+        let feedbackToastTimer = null;
 
         function persistSession(user, token, pendingProfile = false) {
             currentUser = pendingProfile ? null : user;
@@ -1054,6 +1169,7 @@
                 document.getElementById('authSection').style.display = 'none';
                 document.getElementById('sessionBar').style.display = 'block';
                 document.getElementById('dashboardSection').style.display = 'block';
+                document.getElementById('feedbackLauncher').style.display = 'block';
                 
                 document.getElementById('sessName').innerText = currentUser.name || 'User';
                 document.getElementById('sessDept').innerText = currentUser.department || 'N/A';
@@ -1117,8 +1233,94 @@
                 document.getElementById('authSection').style.display = 'block';
                 document.getElementById('sessionBar').style.display = 'none';
                 document.getElementById('dashboardSection').style.display = 'none';
+                document.getElementById('feedbackLauncher').style.display = 'none';
+                closeFeedbackModal();
             }
         }
+
+        function setFeedbackRating(rating) {
+            selectedFeedbackRating = rating;
+            document.querySelectorAll('.feedback-star').forEach(star => {
+                const isSelected = Number(star.dataset.rating) <= rating;
+                star.classList.toggle('is-selected', isSelected);
+                star.setAttribute('aria-pressed', String(Number(star.dataset.rating) === rating));
+            });
+            document.getElementById('feedbackRatingLabel').textContent =
+                `${rating} out of 5 stars`;
+        }
+
+        function openFeedbackModal() {
+            if (!currentUser || !sessionToken) return;
+            document.getElementById('feedbackModal').style.display = 'flex';
+            document.getElementById('feedbackStars').querySelector('button').focus();
+        }
+
+        function closeFeedbackModal() {
+            const modal = document.getElementById('feedbackModal');
+            if (modal) modal.style.display = 'none';
+            if (currentUser) document.getElementById('feedbackLauncher').focus();
+        }
+
+        function showFeedbackToast(message, isError = false) {
+            const toast = document.getElementById('feedbackToast');
+            toast.textContent = message;
+            toast.classList.toggle('is-error', isError);
+            toast.style.display = 'block';
+            clearTimeout(feedbackToastTimer);
+            feedbackToastTimer = setTimeout(() => {
+                toast.style.display = 'none';
+            }, 4000);
+        }
+
+        document.querySelectorAll('.feedback-star').forEach(star => {
+            star.addEventListener('click', () => setFeedbackRating(Number(star.dataset.rating)));
+        });
+        document.getElementById('feedbackModal').addEventListener('click', event => {
+            if (event.target.id === 'feedbackModal') closeFeedbackModal();
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' &&
+                document.getElementById('feedbackModal').style.display === 'flex') {
+                closeFeedbackModal();
+            }
+        });
+        document.getElementById('feedbackForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            if (!selectedFeedbackRating) {
+                document.getElementById('feedbackRatingLabel').textContent = 'Please select a rating.';
+                return;
+            }
+
+            const submitButton = document.getElementById('feedbackSubmit');
+            submitButton.disabled = true;
+            submitButton.textContent = 'Submitting...';
+            try {
+                const response = await fetch('/api/feedback', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: 'Bearer ' + sessionToken
+                    },
+                    body: JSON.stringify({
+                        category: document.getElementById('feedbackCategory').value,
+                        rating: selectedFeedbackRating,
+                        message: document.getElementById('feedbackMessage').value
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Unable to submit feedback.');
+                document.getElementById('feedbackForm').reset();
+                setFeedbackRating(0);
+                document.getElementById('feedbackRatingLabel').textContent = 'Select a rating.';
+                closeFeedbackModal();
+                showFeedbackToast('Thank you! Your feedback has been submitted.');
+            } catch (error) {
+                showFeedbackToast(error.message, true);
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Submit feedback';
+            }
+        });
 
         function logout() {
             stopTelegramConnectionPolling();

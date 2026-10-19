@@ -35,6 +35,7 @@ model User {
   otpExpiry           DateTime?
   createdAt           DateTime              @default(now())
   requests            Request[]
+  feedback            Feedback[]
   auditLogs           AuditLog[]
   approvalSteps       RequestApprovalStep[] @relation("RequestStepApprover")
   uploadedAttachments Attachment[]          @relation("RequestAttachmentUploader")
@@ -75,6 +76,19 @@ model Request {
   updatedAt                 DateTime              @default(now()) @updatedAt
 
   @@index([status, currentApprovalStep])
+}
+
+model Feedback {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  category  String
+  rating    Int
+  message   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model Attachment {

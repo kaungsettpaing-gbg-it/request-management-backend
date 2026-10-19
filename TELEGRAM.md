@@ -36,6 +36,14 @@ their Telegram account is linked. Intermediate approval steps remain pending
 and do not send a requester status notification. Notification text is bounded
 and chunked to fit Telegram message limits.
 
+Signed-in users can submit feedback from the dashboard using `POST /api/feedback`.
+Feedback is saved in the `Feedback` table and a new-feedback
+alert, including the user's name, department, rating, category, and message, is
+sent to the Super Admin chat. The endpoint accepts ratings from 1 to 5,
+categories `UI/UX Improvement`, `Bug Report`, or `General Suggestion`, and
+messages up to 3000 characters. Telegram alerts require the configured bot
+token and Super Admin chat (or a linked Super Admin account).
+
 A monthly summary is generated at `0 0 1 * *` in UTC for the preceding
 calendar month. It stores a unique monthly record, then sends one summary to
 the Super Admin chat. Startup also catches up the preceding month and retries

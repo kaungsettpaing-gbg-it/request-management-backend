@@ -2255,6 +2255,57 @@ app.get('/api/files/:fileId', requireCompletedProfile, async (req, res) => {
   }
 });
 
+app.post('/api/feedback', requireCompletedProfile, async (req, res) => {
+  const { category, rating, message } = req.body || {};
+  const allowedCategories = [
+    'UI/UX Improvement',
+    'Bug Report',
+    'General Suggestion'
+  ];
+  if (typeof category !== 'string' || !allowedCategories.includes(category)) {
+    return res.status(400).json({ error: 'Choose a valid feedback category.' });
+  }
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    return res.status(400).json({ error: 'Rating must be a whole number from 1 to 5.' });
+  }
+  if (typeof message !== 'string' || !message.trim() || message.trim().length > 3000) {
+    return res.status(400).json({ error: 'Feedback message must contain 1 to 3000 characters.' });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.approverId },
+      select: { id: true, name: true, telegramFirstName: true, department: true }
+    });
+    if (!user) {
+      return res.status(401).json({ error: 'The account for this session no longer exists.' });
+    }
+
+    const feedback = await prisma.feedback.create({
+      data: {
+        userId: user.id,
+        category,
+        rating,
+        message: message.trim()
+      }
+    });
+    void notifySuperAdmin([
+      '💬 [NEW USER FEEDBACK]',
+      `User: ${formatTelegramField(user.name || user.telegramFirstName, 160)}`,
+      `Department: ${formatTelegramField(user.department, 120)}`,
+      `Rating: ${'⭐'.repeat(rating)} ${rating}/5`,
+      `Category: ${formatTelegramField(category, 80)}`,
+      `Message:\n${message.trim()}`
+    ].join('\n'));
+
+    return res.status(201).json({ message: 'Feedback submitted successfully.', feedback });
+  } catch (error) {
+    console.error('Create Feedback Error:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to submit feedback.' });
+  }
+});
+
 function requireApprovalAuthentication(req, res, next) {
   const authorization = req.get('authorization') || '';
   const match = authorization.match(/^Bearer\s+(.+)$/i);
