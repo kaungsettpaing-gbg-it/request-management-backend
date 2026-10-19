@@ -8,6 +8,8 @@ const {
   deriveTelegramWebhookSecret,
   escapeCsvCell,
   formatRequestNotification,
+  formatRequestStatusHeader,
+  formatRequestStatusLabel,
   formatTelegramField,
   formatServerError,
   getAttachmentContentDisposition,
@@ -98,37 +100,51 @@ test('derives stable webhook configuration from Railway domain and JWT secret', 
   assert.equal(deriveTelegramWebhookSecret(''), null);
 });
 
-test('formats request notifications with amount and requester details', () => {
-  assert.equal(formatRequestNotification({
+test('formats request notifications with dynamic status headers and request details', () => {
+  const timestampBefore = Date.now();
+  const message = formatRequestNotification({
     id: 42,
     title: 'Office supplies',
     extraFields: JSON.stringify({ amount: '1250000' }),
-    user: { name: 'Aye Aye' }
-  }, 'PENDING'), [
-    'Request #42',
+    user: { name: 'Aye Aye', department: 'Finance' }
+  }, 'APPROVED');
+  assert.deepEqual(message.split('\n').slice(0, 7), [
+    '[✅ REQUEST APPROVED]',
+    'Request ID: 42',
     'Title: Office supplies',
-    'Status: PENDING',
-    'Amount: 1,250,000 MMK',
-    'Requester: Aye Aye'
-  ].join('\n'));
+    'Status: ✅ APPROVED',
+    'Requester: Aye Aye',
+    'Department: Finance',
+    'Amount: 1,250,000 MMK'
+  ]);
+  assert.match(message.split('\n')[7], /^Timestamp: \d{4}-\d\d-\d\dT/);
+  assert.ok(Date.now() >= timestampBefore);
+  assert.equal(formatRequestStatusHeader('APPROVED'), '[✅ REQUEST APPROVED]');
+  assert.equal(formatRequestStatusHeader('REJECTED'), '[❌ REQUEST REJECTED]');
+  assert.equal(formatRequestStatusHeader('PENDING'), '[⏳ REQUEST PENDING]');
+  assert.equal(formatRequestStatusLabel('APPROVED'), '✅ APPROVED');
+  assert.equal(formatRequestStatusLabel('REJECTED'), '❌ REJECTED');
+  assert.equal(formatRequestStatusLabel('PENDING'), '⏳ PENDING');
 });
 
 test('keeps Telegram notification fields single-line and bounded', () => {
   assert.equal(formatTelegramField('Name\nStatus: APPROVED', 100), 'Name Status: APPROVED');
   assert.equal(formatTelegramField('x'.repeat(10), 4), 'xxxx');
   assert.equal(formatTelegramField('', 10), 'Not specified');
-  assert.equal(formatRequestNotification({
+  assert.deepEqual(formatRequestNotification({
     id: 42,
     title: 'Office supplies\nStatus: APPROVED',
     extraFields: JSON.stringify({ amount: '1250000' }),
-    user: { name: 'Aye Aye\nRequester: Fake User' }
-  }, 'PENDING'), [
-    'Request #42',
+    user: { name: 'Aye Aye\nRequester: Fake User', department: 'Finance' }
+  }, 'PENDING').split('\n').slice(0, 7), [
+    '[⏳ REQUEST PENDING]',
+    'Request ID: 42',
     'Title: Office supplies Status: APPROVED',
-    'Status: PENDING',
-    'Amount: 1,250,000 MMK',
-    'Requester: Aye Aye Requester: Fake User'
-  ].join('\n'));
+    'Status: ⏳ PENDING',
+    'Requester: Aye Aye Requester: Fake User',
+    'Department: Finance',
+    'Amount: 1,250,000 MMK'
+  ]);
 });
 
 test('onboarding only allows recognized departments and non-privileged roles', () => {

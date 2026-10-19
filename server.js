@@ -655,11 +655,12 @@ async function notifyRequestActivity(tag, request) {
       where: { id: request.userId },
       select: { name: true, telegramFirstName: true, department: true }
     });
+    const isStatusChange = tag.includes('[STATUS CHANGE]');
     const message = [
-      formatTelegramField(tag, 100),
+      isStatusChange ? formatRequestStatusHeader(request.status) : formatTelegramField(tag, 100),
       `Request ID: ${formatTelegramField(request.id, 40)}`,
       `Title: ${formatTelegramField(request.title, 512)}`,
-      `Status: ${formatTelegramField(request.status, 40)}`,
+      `Status: ${formatRequestStatusLabel(request.status)}`,
       `Requester: ${formatTelegramField(
         requester?.name || requester?.telegramFirstName || 'Unknown',
         160
@@ -764,15 +765,38 @@ function getRequestAmount(extraFields) {
 
 function formatRequestNotification(request, status) {
   return [
-    `Request #${formatTelegramField(request.id, 40)}`,
+    formatRequestStatusHeader(status),
+    `Request ID: ${formatTelegramField(request.id, 40)}`,
     `Title: ${formatTelegramField(request.title, 512)}`,
-    `Status: ${formatTelegramField(status, 40)}`,
-    `Amount: ${getRequestAmount(request.extraFields)}`,
+    `Status: ${formatRequestStatusLabel(status)}`,
     `Requester: ${formatTelegramField(
       request.user?.name || request.user?.telegramFirstName || 'Unknown',
       160
-    )}`
+    )}`,
+    `Department: ${formatTelegramField(request.user?.department, 120)}`,
+    `Amount: ${getRequestAmount(request.extraFields)}`,
+    `Timestamp: ${new Date().toISOString()}`
   ].join('\n');
+}
+
+function getRequestStatusDetails(status) {
+  const normalizedStatus = String(status || '').trim().toUpperCase();
+  const statusDetails = {
+    APPROVED: { emoji: '✅', label: 'APPROVED' },
+    REJECTED: { emoji: '❌', label: 'REJECTED' },
+    PENDING: { emoji: '⏳', label: 'PENDING' }
+  }[normalizedStatus] || { emoji: 'ℹ️', label: formatTelegramField(normalizedStatus, 40) };
+  return statusDetails;
+}
+
+function formatRequestStatusHeader(status) {
+  const { emoji, label } = getRequestStatusDetails(status);
+  return `[${emoji} REQUEST ${label}]`;
+}
+
+function formatRequestStatusLabel(status) {
+  const { emoji, label } = getRequestStatusDetails(status);
+  return `${emoji} ${label}`;
 }
 
 function formatTelegramField(value, maxLength = 256) {
@@ -836,7 +860,12 @@ async function notifyRequestOwner(request, status) {
   }
   const requester = await prisma.user.findUnique({
     where: { id: request.userId },
-    select: { telegramId: true, telegramFirstName: true, name: true }
+    select: {
+      telegramId: true,
+      telegramFirstName: true,
+      name: true,
+      department: true
+    }
   });
   if (!requester?.telegramId) {
     console.warn(`Telegram notification skipped for request ${request.id}: requester has no linked Telegram account.`);
@@ -2377,7 +2406,7 @@ async function handleRequestApproval(req, res) {
       });
     });
 
-    void notifyRequestActivity('🔄 [STATUS CHANGE]', updatedRequest);
+    void notifyRequestActivity('[STATUS CHANGE]', updatedRequest);
     if (updatedRequest.status !== request.status &&
         ['APPROVED', 'REJECTED'].includes(updatedRequest.status)) {
       void notifyRequestOwner(updatedRequest, updatedRequest.status).catch(error => {
@@ -2557,6 +2586,8 @@ module.exports = {
   resolveTelegramWebhookUrl,
   getRequestAmount,
   formatRequestNotification,
+  formatRequestStatusHeader,
+  formatRequestStatusLabel,
   formatTelegramField,
   escapeCsvCell,
   formatServerError,
