@@ -3,7 +3,7 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function prepareTelegramSchema() {
-  const [table] = await prisma.$queryRaw`SELECT to_regclass('"User"') AS name`;
+  const [table] = await prisma.$queryRaw`SELECT to_regclass('"User"')::text AS name`;
   if (!table.name) {
     return;
   }
