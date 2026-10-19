@@ -1,6 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+require('dotenv').config();
 
-const prisma = new PrismaClient();
+const prisma = require('../lib/prisma');
 
 async function prepareTelegramSchema() {
   const [table] = await prisma.$queryRaw`SELECT to_regclass('"User"')::text AS name`;

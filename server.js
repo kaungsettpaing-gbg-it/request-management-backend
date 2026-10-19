@@ -8,12 +8,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { assertPostgresDatabaseUrl } = require('./lib/database-url');
 require('dotenv').config();
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('./lib/prisma');
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL must be configured before the server can start.');
 }
-const prisma = new PrismaClient();
 const app = express();
 const hasStrongJwtSecret = typeof process.env.JWT_SECRET === 'string' &&
   Buffer.byteLength(process.env.JWT_SECRET, 'utf8') >= 32;
