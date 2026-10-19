@@ -292,7 +292,8 @@
                     <textarea id="description" name="description" placeholder="Description..."></textarea>
                     
                     <label><small>Attach File / Receipt / Image (Optional):</small></label>
-                    <input type="file" id="attachment" name="attachment" accept="image/*,.pdf,.doc,.docx">
+                    <input type="file" id="attachment" name="attachment" accept="image/jpeg,image/png,image/webp,.pdf,.doc,.docx">
+                    <small>Files are stored in Telegram; maximum attachment size is 20 MB.</small>
 
                     <button type="submit">Submit Request</button>
                 </form>
@@ -864,7 +865,19 @@
                         .join(' | ');
                 } catch(e) {}
 
-                let fileLink = req.attachment ? '<br><small>📎 <b>Attachment:</b> <a href="/' + req.attachment + '" target="_blank" style="color: #818cf8;">Download File</a></small>' : '';
+                let fileLink = '';
+                if (req.attachmentFile) {
+                    fileLink = '<br><small>📎 <b>Attachment:</b> <a href="#" data-file-id="' +
+                        escapeHtml(req.attachmentFile.telegramFileId) + '" data-file-name="' +
+                        escapeHtml(req.attachmentFile.fileName) +
+                        '" onclick="downloadRequestAttachment(this); return false;" style="color: #818cf8;">' +
+                        escapeHtml(req.attachmentFile.fileName) + '</a></small>';
+                } else if (req.attachment) {
+                    const legacyPath = '/' + String(req.attachment).replace(/^[\\/]+/, '');
+                    fileLink = '<br><small>📎 <b>Attachment:</b> <a href="' +
+                        escapeHtml(encodeURI(legacyPath)) +
+                        '" target="_blank" rel="noopener noreferrer" style="color: #818cf8;">Download File</a></small>';
+                }
                 const formattedDate = req.createdAt ? new Date(req.createdAt).toLocaleString() : 'N/A';
 
                 let auditHtml = '';
@@ -913,6 +926,28 @@
                     auditHtml +
                 '</div>';
             });
+        }
+
+        async function downloadRequestAttachment(link) {
+            try {
+                const response = await fetch('/api/files/' + encodeURIComponent(link.dataset.fileId), {
+                    headers: { Authorization: 'Bearer ' + sessionToken }
+                });
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Unable to download attachment.');
+                }
+                const objectUrl = URL.createObjectURL(await response.blob());
+                const downloadLink = document.createElement('a');
+                downloadLink.href = objectUrl;
+                downloadLink.download = link.dataset.fileName || 'attachment';
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                downloadLink.remove();
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+            } catch (error) {
+                alert('Attachment download failed: ' + error.message);
+            }
         }
 
         async function updateStatus(id, status) {

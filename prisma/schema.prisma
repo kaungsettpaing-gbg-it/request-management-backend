@@ -22,45 +22,63 @@ enum Role {
 }
 
 model User {
-  id            Int                   @id @default(autoincrement())
-  email         String                @unique
-  password      String
-  name          String?
-  department    String?
-  role          Role?                 @default(USER)
-  telegramId        String?               @unique
-  telegramUsername  String?
-  telegramFirstName String?
-  otp           String?
-  otpExpiry     DateTime?
-  createdAt     DateTime              @default(now())
-  requests      Request[]
-  auditLogs     AuditLog[]
-  approvalSteps RequestApprovalStep[] @relation("RequestStepApprover")
+  id                  Int                   @id @default(autoincrement())
+  email               String                @unique
+  password            String
+  name                String?
+  department          String?
+  role                Role?                 @default(USER)
+  telegramId          String?               @unique
+  telegramUsername    String?
+  telegramFirstName   String?
+  otp                 String?
+  otpExpiry           DateTime?
+  createdAt           DateTime              @default(now())
+  requests            Request[]
+  auditLogs           AuditLog[]
+  approvalSteps       RequestApprovalStep[] @relation("RequestStepApprover")
+  uploadedAttachments Attachment[]          @relation("RequestAttachmentUploader")
 }
 
 model Request {
-  id                       Int                   @id @default(autoincrement())
-  title                    String
-  description              String?
-  category                 String                @default("General")
-  status                   String                @default("PENDING")
-  targetDepartment         String?               @default("General") // Cross-Department Request Target
+  id                        Int                   @id @default(autoincrement())
+  title                     String
+  description               String?
+  category                  String                @default("General")
+  status                    String                @default("PENDING")
+  targetDepartment          String?               @default("General") // Cross-Department Request Target
   requiresExecutiveApproval Boolean               @default(false)
-  approvalStage            String?               @default("PENDING")
-  currentApprovalStep      Int                   @default(0)
-  adminManagerApprovedBy   Int?
-  financeManagerApprovedBy Int?
-  extraFields              String?
-  attachment               String?
-  userId                   Int
-  user                     User                  @relation(fields: [userId], references: [id])
-  auditLogs                AuditLog[]
-  approvalSteps            RequestApprovalStep[]
-  createdAt                DateTime              @default(now())
-  updatedAt                DateTime              @default(now()) @updatedAt
+  approvalStage             String?               @default("PENDING")
+  currentApprovalStep       Int                   @default(0)
+  adminManagerApprovedBy    Int?
+  financeManagerApprovedBy  Int?
+  extraFields               String?
+  attachment                String?
+  userId                    Int
+  user                      User                  @relation(fields: [userId], references: [id])
+  auditLogs                 AuditLog[]
+  approvalSteps             RequestApprovalStep[]
+  attachmentFile            Attachment?
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @default(now()) @updatedAt
 
   @@index([status, currentApprovalStep])
+}
+
+model Attachment {
+  id             Int      @id @default(autoincrement())
+  requestId      Int      @unique
+  telegramFileId String
+  fileName       String
+  mimeType       String
+  fileSize       Int
+  publicUrl      String
+  uploadedById   Int
+  createdAt      DateTime @default(now())
+  request        Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  uploadedBy     User     @relation("RequestAttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([telegramFileId])
 }
 
 model RequestApprovalStep {

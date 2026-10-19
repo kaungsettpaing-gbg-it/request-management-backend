@@ -5,8 +5,11 @@ const {
   ADMIN_ASSIGNABLE_ROLES,
   formatRequestNotification,
   formatServerError,
+  getAttachmentContentDisposition,
+  isAllowedAttachment,
   isValidOnboardingProfile,
   redactSensitiveErrorText,
+  safeAttachmentFileName,
   SELF_ASSIGNABLE_ROLES,
   splitTelegramMessage,
   verifyTelegramLogin
@@ -97,4 +100,23 @@ test('server error alerts redact secrets and split messages within Telegram limi
   const chunks = splitTelegramMessage('a'.repeat(8000));
   assert.equal(chunks.length, 3);
   assert.ok(chunks.every(chunk => chunk.length <= 3500));
+});
+
+test('attachment validation enforces matching supported MIME types and safe download names', () => {
+  assert.equal(isAllowedAttachment({
+    mimetype: 'image/jpeg',
+    originalname: 'receipt.jpg'
+  }), true);
+  assert.equal(isAllowedAttachment({
+    mimetype: 'application/pdf',
+    originalname: 'receipt.exe'
+  }), false);
+  assert.equal(isAllowedAttachment({
+    mimetype: 'image/gif',
+    originalname: 'receipt.gif'
+  }), false);
+  assert.equal(safeAttachmentFileName('../report.pdf'), 'report.pdf');
+  const disposition = getAttachmentContentDisposition('စာရွက်စာတမ်း.pdf');
+  assert.match(disposition, /^attachment; filename="[^"]+"; filename\*=UTF-8''/);
+  assert.equal(disposition.includes('\n'), false);
 });

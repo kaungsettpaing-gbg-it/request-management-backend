@@ -2,7 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -43,15 +42,84 @@ app.get('/api/config', (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-if (!fs.existsSync('./uploads')) {
-  fs.mkdirSync('./uploads');
+const MAX_ATTACHMENT_SIZE_BYTES = 20 * 1024 * 1024;
+const ALLOWED_ATTACHMENT_TYPES = new Map([
+  ['image/jpeg', new Set(['.jpg', '.jpeg'])],
+  ['image/png', new Set(['.png'])],
+  ['image/webp', new Set(['.webp'])],
+  ['application/pdf', new Set(['.pdf'])],
+  ['application/msword', new Set(['.doc'])],
+  ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', new Set(['.docx'])]
+]);
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_ATTACHMENT_SIZE_BYTES, files: 1 }
+});
+
+function uploadRequestAttachment(req, res, next) {
+  upload.single('attachment')(req, res, error => {
+    if (!error) return next();
+    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    return res.status(status).json({
+      error: status === 413
+        ? 'Attachments must be 20 MB or smaller.'
+        : 'Unable to receive the uploaded attachment.'
+    });
+  });
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-});
-const upload = multer({ storage });
+function isAllowedAttachment(file) {
+  if (!file) return true;
+  const extensions = ALLOWED_ATTACHMENT_TYPES.get(file.mimetype);
+  return Boolean(extensions && extensions.has(path.extname(file.originalname).toLowerCase()));
+}
+
+function safeAttachmentFileName(fileName) {
+  return path.basename(String(fileName || 'attachment'))
+    .replace(/[\r\n"\\]/g, '_')
+    .slice(0, 180) || 'attachment';
+}
+
+function getAttachmentContentDisposition(fileName) {
+  const safeName = safeAttachmentFileName(fileName);
+  const fallbackName = safeName.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+  const encodedName = encodeURIComponent(safeName)
+    .replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodedName}`;
+}
+
+async function uploadAttachmentToTelegram(file) {
+  if (!TELEGRAM_BOT_TOKEN) {
+    throw new Error('TELEGRAM_BOT_TOKEN is not configured.');
+  }
+  const chatId = await resolveSuperAdminChatId();
+  if (!chatId) {
+    throw new Error('Set SUPER_ADMIN_TELEGRAM_CHAT_ID or link a Telegram account to the SUPER_ADMIN user before uploading attachments.');
+  }
+  const isJpeg = file.mimetype === 'image/jpeg' && file.size <= 10 * 1024 * 1024;
+  const method = isJpeg ? 'sendPhoto' : 'sendDocument';
+  const form = new FormData();
+  form.append('chat_id', chatId);
+  form.append(isJpeg ? 'photo' : 'document', new Blob([file.buffer], { type: file.mimetype }), safeAttachmentFileName(file.originalname));
+
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: 'POST',
+    body: form,
+    signal: AbortSignal.timeout(30000)
+  });
+  const result = await response.json();
+  if (!response.ok || !result.ok) {
+    throw new Error(`Telegram ${method} failed: ${result.description || response.statusText}`);
+  }
+
+  const uploadedFile = isJpeg
+    ? result.result?.photo?.at(-1)
+    : result.result?.document;
+  if (!uploadedFile?.file_id) {
+    throw new Error(`Telegram ${method} response did not include a file ID.`);
+  }
+  return uploadedFile;
+}
 
 // Telegram Bot Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -987,17 +1055,21 @@ app.delete('/api/users/:id', requireAdminAuthentication, async (req, res) => {
 });
 
 // Create Request API
-app.post('/api/requests', requireCompletedProfile, upload.single('attachment'), async (req, res) => {
+app.post('/api/requests', requireCompletedProfile, uploadRequestAttachment, async (req, res) => {
   try {
     const { title, description, category, targetDepartment, extraFields } = req.body;
     const requiresExecutiveApproval = req.body.requiresExecutiveApproval === true ||
       req.body.requiresExecutiveApproval === 'true';
-    const attachmentPath = req.file ? req.file.path : null;
+    if (!isAllowedAttachment(req.file)) {
+      return res.status(415).json({
+        error: 'Only JPEG, PNG, WebP, PDF, DOC, and DOCX attachments are supported.'
+      });
+    }
     const categoryName = String(category || 'General').trim();
     const requestUserId = req.approverId;
     const originUser = await prisma.user.findUnique({
       where: { id: requestUserId },
-      select: { id: true, department: true }
+      select: { id: true, department: true, name: true }
     });
     if (!originUser) {
       return res.status(401).json({ error: 'The account for this session no longer exists.' });
@@ -1015,6 +1087,12 @@ app.post('/api/requests', requireCompletedProfile, upload.single('attachment'), 
       requestTargetDepartment,
       requiresExecutiveApproval
     );
+    const telegramFile = req.file
+      ? await uploadAttachmentToTelegram(req.file)
+      : null;
+    const attachmentFileName = req.file
+      ? safeAttachmentFileName(req.file.originalname)
+      : null;
 
     const newRequest = await prisma.request.create({
       data: {
@@ -1026,14 +1104,26 @@ app.post('/api/requests', requireCompletedProfile, upload.single('attachment'), 
         approvalStage: chain[0].stage,
         currentApprovalStep: 0,
         userId: requestUserId,
-        attachment: attachmentPath,
         extraFields: extraFields || null,
+        ...(telegramFile && {
+          attachmentFile: {
+            create: {
+              telegramFileId: telegramFile.file_id,
+              fileName: attachmentFileName,
+              mimeType: req.file.mimetype,
+              fileSize: req.file.size,
+              publicUrl: `/api/files/${encodeURIComponent(telegramFile.file_id)}`,
+              uploadedById: requestUserId
+            }
+          }
+        }),
         approvalSteps: {
           create: chain.map(({ stage, ...step }) => step)
         }
       },
       include: {
         user: { select: { id: true, name: true, telegramFirstName: true, department: true } },
+        attachmentFile: true,
         approvalSteps: { orderBy: { sequence: 'asc' } }
       }
     });
@@ -1120,6 +1210,7 @@ app.get('/api/requests', requireCompletedProfile, async (req, res) => {
       prisma.request.findMany({
         where,
         include: {
+          attachmentFile: true,
           user: { select: { id: true, name: true, department: true, role: true } },
           auditLogs: {
             include: { user: { select: { id: true, name: true, role: true } } },
@@ -1245,6 +1336,70 @@ function canUserSeeRequest(request, actor) {
     String(actor.department || '').trim().toLowerCase() ===
       String(currentStep.department || '').trim().toLowerCase();
 }
+
+app.get('/api/files/:fileId', requireCompletedProfile, async (req, res) => {
+  const fileId = String(req.params.fileId || '');
+  if (!/^[A-Za-z0-9_-]{1,512}$/.test(fileId)) {
+    return res.status(400).json({ error: 'A valid Telegram file ID is required.' });
+  }
+
+  try {
+    const attachment = await prisma.attachment.findFirst({
+      where: { telegramFileId: fileId },
+      include: {
+        request: { include: { approvalSteps: true } }
+      }
+    });
+    if (!attachment) {
+      return res.status(404).json({ error: 'Attachment not found.' });
+    }
+
+    const actor = await prisma.user.findUnique({
+      where: { id: req.approverId },
+      select: { id: true, role: true, department: true }
+    });
+    if (!actor || !canUserSeeRequest(attachment.request, actor)) {
+      return res.status(403).json({ error: 'You are not allowed to access this attachment.' });
+    }
+    if (!TELEGRAM_BOT_TOKEN) {
+      return res.status(503).json({ error: 'Telegram file storage is not configured.' });
+    }
+
+    const metadataResponse = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${encodeURIComponent(fileId)}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    const metadata = await metadataResponse.json();
+    if (!metadataResponse.ok || !metadata.ok || !metadata.result?.file_path) {
+      throw new Error(`Telegram getFile failed: ${metadata.description || metadataResponse.statusText}`);
+    }
+
+    const telegramResponse = await fetch(
+      `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${metadata.result.file_path}`,
+      { signal: AbortSignal.timeout(30000) }
+    );
+    if (!telegramResponse.ok) {
+      throw new Error(`Telegram file download failed: ${telegramResponse.statusText}`);
+    }
+    const content = Buffer.from(await telegramResponse.arrayBuffer());
+    if (content.length > MAX_ATTACHMENT_SIZE_BYTES) {
+      return res.status(413).json({ error: 'The stored attachment exceeds the supported download size.' });
+    }
+
+    res.set({
+      'Content-Type': attachment.mimeType,
+      'Content-Length': String(content.length),
+      'Content-Disposition': getAttachmentContentDisposition(attachment.fileName),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    return res.send(content);
+  } catch (error) {
+    console.error(`Unable to retrieve Telegram attachment for request ${req.params.fileId}:`, error.message);
+    res.locals.systemError = error;
+    return res.status(502).json({ error: 'Unable to retrieve the attachment from Telegram.' });
+  }
+});
 
 function requireApprovalAuthentication(req, res, next) {
   const authorization = req.get('authorization') || '';
@@ -1541,6 +1696,9 @@ module.exports = {
   formatServerError,
   redactSensitiveErrorText,
   splitTelegramMessage,
+  isAllowedAttachment,
+  safeAttachmentFileName,
+  getAttachmentContentDisposition,
   isValidOnboardingProfile,
   SELF_ASSIGNABLE_ROLES,
   ADMIN_ASSIGNABLE_ROLES
