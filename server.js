@@ -171,6 +171,7 @@ let cachedSuperAdminChatId = null;
 let monthlyReportCronTask = null;
 let monthlyReportJobRunning = false;
 let telegramWebhookConfigured = false;
+let telegramWebhookSetupPromise = null;
 const USER_DEPARTMENTS = [
   'HR', 'Finance', 'IT', 'Cashier', 'Sales & Marketing',
   'Warehouse', 'Production', 'Admin', 'Executive Management'
@@ -319,6 +320,17 @@ async function configureTelegramWebhook() {
   return true;
 }
 
+async function ensureTelegramWebhookConfigured() {
+  if (telegramWebhookConfigured) return true;
+  if (!telegramWebhookSetupPromise) {
+    telegramWebhookSetupPromise = configureTelegramWebhook()
+      .finally(() => {
+        telegramWebhookSetupPromise = null;
+      });
+  }
+  return telegramWebhookSetupPromise;
+}
+
 function safeEqualStrings(first, second) {
   if (typeof first !== 'string' || typeof second !== 'string') return false;
   const firstBuffer = Buffer.from(first);
@@ -331,20 +343,33 @@ app.post('/api/telegram/link', requireApprovalAuthentication, async (req, res) =
   try {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_BOT_USERNAME ||
         !TELEGRAM_WEBHOOK_SECRET || !TELEGRAM_WEBHOOK_URL) {
+      const error = new Error(
+        'Telegram linking requires TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME, TELEGRAM_WEBHOOK_SECRET, and TELEGRAM_WEBHOOK_URL.'
+      );
+      console.error('Unable to create Telegram account link:', error.message);
+      res.locals.systemError = error;
       return res.status(500).json({
-        error: 'Telegram account linking is not configured on this server.'
+        error: 'Telegram linking is not configured correctly. Please contact an administrator.'
       });
     }
-    if (!telegramWebhookConfigured) {
+    if (!await ensureTelegramWebhookConfigured()) {
+      const error = new Error('Telegram webhook setup is not available. Check the bot configuration and public webhook URL.');
+      console.error('Unable to create Telegram account link:', error.message);
+      res.locals.systemError = error;
       return res.status(500).json({
-        error: 'Telegram webhook setup is incomplete. Check the server configuration and try again shortly.'
+        error: 'Telegram webhook setup is incomplete. Please contact an administrator.'
       });
     }
     const link = await createUserTelegramLink(req.approverId);
     return res.json({ ...link, expiresAt: link.expiresAt.toISOString() });
   } catch (error) {
-    console.error('Unable to create Telegram account link:', error.message);
+    console.error('Unable to create Telegram account link:', error);
     res.locals.systemError = error;
+    if (error.code === 'P2021' || error.code === 'P2022') {
+      return res.status(500).json({
+        error: 'Telegram linking database tables are not ready. Please contact an administrator.'
+      });
+    }
     return res.status(500).json({ error: 'Unable to create a Telegram connection link.' });
   }
 });
@@ -2468,7 +2493,7 @@ async function start() {
   return new Promise((resolve, reject) => {
     const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server is running on port ${PORT}`);
-    void configureTelegramWebhook().catch(error => {
+    void ensureTelegramWebhookConfigured().catch(error => {
     console.error('Telegram webhook auto-setup failed:', error.message);
     });
     resolve(server);
