@@ -6,8 +6,9 @@
   "scripts": {
     "postinstall": "prisma generate",
     "prestart": "node -e \"require('dotenv').config(); try { require('./lib/database-url').assertPostgresDatabaseUrl(process.env.DATABASE_URL); } catch (error) { console.error(error.message); process.exit(1); }\"",
-    "start": "node scripts/prepare-telegram-schema.js && prisma db push --accept-data-loss && node server.js",
-    "build": "npx prisma generate",
+    "db:prepare": "node scripts/prepare-telegram-schema.js && prisma db push --accept-data-loss",
+    "start": "npm run db:prepare && node server.js",
+    "build": "prisma generate",
     "test": "node --test test/approval-workflow.test.js test/telegram-auth.test.js"
   },
   "keywords": [],
@@ -22,9 +23,7 @@
     "exceljs": "^4.4.0",
     "express": "^5.3.0",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.4.0"
-  },
-  "devDependencies": {
+    "multer": "^2.4.0",
     "prisma": "^5.22.0"
   }
 }
