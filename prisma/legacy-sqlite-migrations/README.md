@@ -4,17 +4,11 @@ These migration files are retained for reference only. They target SQLite and
 must not be run against the PostgreSQL database configured by
 `prisma/schema.prisma`.
 
-The active PostgreSQL migration history starts at
-`prisma/migrations/20261019095600_postgresql_baseline`.
+The active PostgreSQL migration directory is retained for reference, but this
+project's Railway deployment synchronizes the schema with `prisma db push`;
+it does not use migration deployment. The deployment sequence is configured
+in `package.json`, `railway.json`, and `nixpacks.toml`.
 
-For a fresh PostgreSQL database, run `npx prisma migrate deploy`. For an
-existing database whose schema is already managed by `prisma db push`, first
-verify that its schema matches `prisma/schema.prisma`, then mark the baseline
-as applied with:
-
-```sh
-npx prisma migrate resolve --applied 20261019095600_postgresql_baseline
-```
-
-Do not mark the baseline as applied on an empty or mismatched database; use
-`npx prisma migrate deploy` for an empty database instead.
+Do not run a migration deployment command for this application. On Railway,
+clear any custom Build, Pre-deploy, or Start command that invokes migration
+deployment and use `npm run build` for Build and `npm start` for Start.

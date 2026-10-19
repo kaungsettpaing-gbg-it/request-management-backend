@@ -19,6 +19,21 @@
         }
 
         body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 20px; background: var(--bg-main); color: var(--text-dark); }
+        body.login-screen {
+            min-height: 100vh;
+            background:
+                radial-gradient(ellipse at 50% 16%, rgba(99,102,241,0.24), transparent 42%),
+                radial-gradient(ellipse at 12% 82%, rgba(14,165,233,0.12), transparent 34%),
+                #070b18;
+        }
+        body.login-screen .container {
+            background:
+                linear-gradient(145deg, rgba(30,41,59,0.76), rgba(15,23,42,0.62));
+            border-color: rgba(255,255,255,0.12);
+            box-shadow: 0 24px 70px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.05);
+            -webkit-backdrop-filter: blur(18px);
+            backdrop-filter: blur(18px);
+        }
         .container { max-width: 1100px; background: var(--card-bg); padding: 35px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); margin: 20px auto; border: 1px solid var(--border-color); }
         .header-title { color: var(--text-dark); font-size: 26px; font-weight: 700; margin-bottom: 25px; border-bottom: 2px solid var(--border-color); padding-bottom: 15px; }
         
@@ -40,11 +55,12 @@
             border: 1px solid rgba(255,255,255,0.15);
             border-radius: 18px;
             background:
-                linear-gradient(145deg, rgba(255,255,255,0.08), transparent 38%),
-                rgba(15,23,42,0.75);
-            box-shadow: 0 24px 60px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.12);
-            -webkit-backdrop-filter: blur(12px);
-            backdrop-filter: blur(12px);
+                radial-gradient(ellipse at 50% 0%, rgba(129,140,248,0.19), transparent 56%),
+                linear-gradient(145deg, rgba(255,255,255,0.075), transparent 42%),
+                rgba(8,13,28,0.58);
+            box-shadow: 0 28px 80px rgba(0,0,0,0.58), 0 0 44px rgba(99,102,241,0.12), inset 0 1px 0 rgba(255,255,255,0.16);
+            -webkit-backdrop-filter: blur(18px);
+            backdrop-filter: blur(18px);
         }
         .auth-tabs { display: flex; background: rgba(2,6,23,0.28); border-bottom: 1px solid rgba(255,255,255,0.1); }
         .auth-tab-btn { flex: 1; padding: 16px; text-align: center; background: transparent; color: var(--text-muted); border: none; font-weight: 600; cursor: pointer; }
@@ -135,7 +151,7 @@
         }
     </style>
 </head>
-<body>
+<body class="login-screen">
     <div class="container">
         <div class="header-title">🏢 Enterprise Request System (Security & Compliance Edition)</div>
         
@@ -598,6 +614,7 @@
 
         function updateUI() {
             if (currentUser) {
+                document.body.classList.remove('login-screen');
                 document.getElementById('authSection').style.display = 'none';
                 document.getElementById('sessionBar').style.display = 'block';
                 document.getElementById('dashboardSection').style.display = 'block';
@@ -639,6 +656,7 @@
                     document.getElementById('exportDropdownContainer').style.display = 'none';
                 }
             } else {
+                document.body.classList.add('login-screen');
                 document.getElementById('authSection').style.display = 'block';
                 document.getElementById('sessionBar').style.display = 'none';
                 document.getElementById('dashboardSection').style.display = 'none';

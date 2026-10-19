@@ -435,10 +435,18 @@ async function initSuperAdmin() {
     const superAdminEmail = 'superadmin@company.com';
     const superAdminTelegram = 'okeydokey2';
 
+    const superAdmin = await prisma.user.findFirst({
+        where: { role: 'SUPER_ADMIN' }
+    });
+    if (superAdmin) {
+        await bindSuperAdminTelegramAccount(superAdmin);
+        console.log(`Super Admin is configured for ${superAdmin.email}.`);
+        return;
+    }
+
     const adminExists = await prisma.user.findFirst({
         where: {
             OR: [
-                { role: 'SUPER_ADMIN' },
                 { email: superAdminEmail },
                 { telegramUsername: superAdminTelegram }
             ]
@@ -446,9 +454,6 @@ async function initSuperAdmin() {
     });
 
     if (adminExists) {
-        if (adminExists.role === 'SUPER_ADMIN') {
-            await bindSuperAdminTelegramAccount(adminExists);
-        }
         console.log(`Super Admin is configured for ${adminExists.email}.`);
         return;
     }
