@@ -6,7 +6,7 @@
   "scripts": {
     "postinstall": "prisma generate",
     "prestart": "node -e \"require('dotenv').config(); try { require('./lib/database-url').assertPostgresDatabaseUrl(process.env.DATABASE_URL); } catch (error) { console.error(error.message); process.exit(1); }\"",
-    "db:prepare": "node scripts/prepare-telegram-schema.js && prisma db push --accept-data-loss",
+    "db:prepare": "prisma generate && node scripts/prepare-telegram-schema.js && prisma db push --accept-data-loss",
     "start": "npm run db:prepare && node server.js",
     "build": "prisma generate",
     "test": "node --test test/approval-workflow.test.js test/telegram-auth.test.js"
