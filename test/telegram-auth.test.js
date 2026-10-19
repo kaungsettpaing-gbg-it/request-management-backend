@@ -1,7 +1,16 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const test = require('node:test');
-const { formatRequestNotification, isValidOnboardingProfile, verifyTelegramLogin } = require('../server');
+const {
+  ADMIN_ASSIGNABLE_ROLES,
+  formatRequestNotification,
+  formatServerError,
+  isValidOnboardingProfile,
+  redactSensitiveErrorText,
+  SELF_ASSIGNABLE_ROLES,
+  splitTelegramMessage,
+  verifyTelegramLogin
+} = require('../server');
 
 const botToken = 'unit-test-bot-token';
 const nowSeconds = 1_800_000_000;
@@ -59,6 +68,33 @@ test('formats request notifications with amount and requester details', () => {
 test('onboarding only allows recognized departments and non-privileged roles', () => {
   assert.equal(isValidOnboardingProfile('IT', 'STAFF'), true);
   assert.equal(isValidOnboardingProfile('Finance', 'ASSISTANT'), true);
+  assert.equal(isValidOnboardingProfile('HR', 'SUPERVISOR'), true);
+  assert.equal(isValidOnboardingProfile('IT', 'IT_SPECIALIST'), true);
   assert.equal(isValidOnboardingProfile('Finance', 'ADMIN'), false);
   assert.equal(isValidOnboardingProfile('Unknown', 'STAFF'), false);
+  assert.deepEqual(SELF_ASSIGNABLE_ROLES, ['STAFF', 'ASSISTANT', 'SUPERVISOR', 'IT_SPECIALIST']);
+  assert.deepEqual(ADMIN_ASSIGNABLE_ROLES, [
+    'STAFF', 'ASSISTANT', 'SUPERVISOR', 'IT_SPECIALIST', 'MANAGER', 'DGM', 'GM', 'ADMIN'
+  ]);
+});
+
+test('server error alerts redact secrets and split messages within Telegram limits', () => {
+  const originalToken = process.env.TELEGRAM_BOT_TOKEN;
+  process.env.TELEGRAM_BOT_TOKEN = botToken;
+  try {
+    const safeText = redactSensitiveErrorText(
+      `failed ${botToken} postgres://db-user:db-password@host/db`,
+      botToken
+    );
+    assert.equal(safeText.includes(botToken), false);
+    assert.equal(safeText.includes('db-password'), false);
+    assert.match(formatServerError(new Error('database unavailable')), /\[SERVER ERROR\]/);
+  } finally {
+    if (originalToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = originalToken;
+  }
+
+  const chunks = splitTelegramMessage('a'.repeat(8000));
+  assert.equal(chunks.length, 3);
+  assert.ok(chunks.every(chunk => chunk.length <= 3500));
 });

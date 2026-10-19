@@ -26,6 +26,16 @@ if (!hasStrongJwtSecret) {
 
 app.use(express.json());
 app.use(cors());
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    if (res.statusCode >= 500) {
+      const error = res.locals.systemError ||
+        new Error(`HTTP ${res.statusCode} returned for ${req.method} ${req.originalUrl}`);
+      void notifySuperAdmin(formatServerError(error, `${req.method} ${req.originalUrl}`));
+    }
+  });
+  next();
+});
 app.get('/api/config', (req, res) => {
   res.set('Cache-Control', 'no-store');
   return res.json({ telegramBotUsername: TELEGRAM_BOT_USERNAME });
@@ -46,12 +56,16 @@ const upload = multer({ storage });
 // Telegram Bot Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '') || 'Telegbg_Bot';
+const SUPER_ADMIN_TELEGRAM_CHAT_ID = process.env.SUPER_ADMIN_TELEGRAM_CHAT_ID;
 const USER_DEPARTMENTS = [
   'HR', 'Finance', 'IT', 'Cashier', 'Sales & Marketing',
   'Warehouse', 'Production', 'Admin', 'Executive Management'
 ];
-const SELF_ASSIGNABLE_ROLES = ['STAFF', 'ASSISTANT'];
-const ADMIN_ASSIGNABLE_ROLES = [...SELF_ASSIGNABLE_ROLES, 'MANAGER', 'DGM', 'GM', 'ADMIN'];
+const SELF_ASSIGNABLE_ROLES = ['STAFF', 'ASSISTANT', 'SUPERVISOR', 'IT_SPECIALIST'];
+const ADMIN_ASSIGNABLE_ROLES = [
+  ...SELF_ASSIGNABLE_ROLES, 'MANAGER', 'DGM', 'GM', 'ADMIN'
+];
+const DEPARTMENT_APPROVER_ROLES = ['MANAGER', 'SUPERVISOR'];
 
 function isValidOnboardingProfile(department, role) {
   return USER_DEPARTMENTS.includes(department) && SELF_ASSIGNABLE_ROLES.includes(role);
@@ -63,6 +77,7 @@ async function sendTelegramOTP(chatId, otpCode) {
     return true;
   } catch (error) {
     console.error("Telegram API Error:", error.message);
+    void notifySuperAdmin(formatServerError(error, 'Telegram OTP delivery'));
     return false;
   }
 }
@@ -86,6 +101,123 @@ async function sendTelegramMessage(chatId, text, parseMode) {
     throw new Error(`Telegram sendMessage failed: ${data.description || response.statusText}`);
   }
 }
+
+function redactSensitiveErrorText(text, botToken = TELEGRAM_BOT_TOKEN) {
+  let safeText = String(text || 'Unknown error');
+  const secrets = [
+    botToken,
+    process.env.JWT_SECRET,
+    process.env.DATABASE_URL,
+    process.env.SUPER_ADMIN_TELEGRAM_CHAT_ID
+  ].filter(secret => typeof secret === 'string' && secret.length > 0);
+  for (const secret of secrets) {
+    safeText = safeText.split(secret).join('[REDACTED_SECRET]');
+  }
+  return safeText
+    .replace(/((?:postgres(?:ql)?|mongodb(?:\+srv)?):\/\/)[^@\s]+@/gi, '$1[REDACTED]@')
+    .replace(/((?:JWT_SECRET|DATABASE_URL|TELEGRAM_BOT_TOKEN)\s*[=:]\s*)\S+/gi, '$1[REDACTED]');
+}
+
+function splitTelegramMessage(text, maxLength = 3500) {
+  const chunks = [];
+  let remaining = String(text);
+  while (remaining.length > maxLength) {
+    let splitAt = remaining.lastIndexOf('\n', maxLength);
+    if (splitAt < Math.floor(maxLength / 2)) splitAt = maxLength;
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt).replace(/^\n/, '');
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
+function formatServerError(error, context = 'Unhandled server error') {
+  const detail = error instanceof Error
+    ? (error.stack || `${error.name}: ${error.message}`)
+    : String(error);
+  return [
+    '🚨 [SERVER ERROR]',
+    `Context: ${context}`,
+    `Timestamp: ${new Date().toISOString()}`,
+    redactSensitiveErrorText(detail)
+  ].join('\n');
+}
+
+async function notifySuperAdmin(message) {
+  if (!SUPER_ADMIN_TELEGRAM_CHAT_ID) {
+    console.error('Centralized Telegram notification skipped: SUPER_ADMIN_TELEGRAM_CHAT_ID is not configured.');
+    return;
+  }
+  if (!/^-?\d+$/.test(SUPER_ADMIN_TELEGRAM_CHAT_ID)) {
+    console.error('Centralized Telegram notification skipped: SUPER_ADMIN_TELEGRAM_CHAT_ID must be a numeric Telegram chat ID.');
+    return;
+  }
+  try {
+    const chunks = splitTelegramMessage(redactSensitiveErrorText(message));
+    for (let index = 0; index < chunks.length; index += 1) {
+      const partLabel = chunks.length > 1 ? ` (part ${index + 1}/${chunks.length})` : '';
+      await sendTelegramMessage(SUPER_ADMIN_TELEGRAM_CHAT_ID, `${chunks[index]}${partLabel}`);
+    }
+  } catch (error) {
+    console.error('Centralized Telegram notification failed:', redactSensitiveErrorText(error.stack || error.message));
+  }
+}
+
+async function notifyRequestActivity(tag, request) {
+  try {
+    const requester = request.user || await prisma.user.findUnique({
+      where: { id: request.userId },
+      select: { name: true, telegramFirstName: true, department: true }
+    });
+    const message = [
+      tag,
+      `Request ID: ${request.id}`,
+      `Title: ${request.title}`,
+      `Status: ${request.status}`,
+      `Requester: ${requester?.name || requester?.telegramFirstName || 'Unknown'}`,
+      `Department: ${requester?.department || 'Not specified'}`,
+      `Amount: ${getRequestAmount(request.extraFields)}`,
+      `Timestamp: ${new Date().toISOString()}`
+    ].join('\n');
+    await notifySuperAdmin(message);
+  } catch (error) {
+    console.error(`Unable to prepare centralized notification for request ${request.id}:`, error);
+  }
+}
+
+function notifyUserActivity(tag, user, activity) {
+  const message = [
+    tag,
+    `User: ${user.name || user.telegramFirstName || 'Unknown'}`,
+    `Email: ${user.email || 'Telegram account'}`,
+    `Department: ${user.department || 'Not specified'}`,
+    `Role: ${user.role || 'Not assigned'}`,
+    `Activity: ${activity}`,
+    `Timestamp: ${new Date().toISOString()}`
+  ].join('\n');
+  void notifySuperAdmin(message);
+}
+
+process.on('unhandledRejection', reason => {
+  console.error('Unhandled promise rejection:', reason);
+  const shutdownTimeout = setTimeout(() => process.exit(1), 12000);
+  void notifySuperAdmin(formatServerError(reason, 'Unhandled promise rejection'))
+    .finally(() => {
+      clearTimeout(shutdownTimeout);
+      process.exit(1);
+    });
+});
+
+process.on('uncaughtException', error => {
+  console.error('Uncaught exception:', error);
+  const shutdownTimeout = setTimeout(() => process.exit(1), 12000);
+  void notifySuperAdmin(formatServerError(error, 'Uncaught exception'))
+    .finally(() => {
+      clearTimeout(shutdownTimeout);
+      process.exitCode = 1;
+      process.exit(1);
+    });
+});
 
 function verifyTelegramLogin(payload, botToken, nowSeconds = Math.floor(Date.now() / 1000)) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
@@ -396,6 +528,7 @@ app.post('/api/login', async (req, res) => {
     });
   } catch (error) {
     console.error("Login Error:", error);
+    res.locals.systemError = error;
     res.status(500).json({ error: error.message });
   }
 });
@@ -411,6 +544,7 @@ app.post('/api/auth/telegram', async (req, res) => {
 
   try {
     let user = await prisma.user.findUnique({ where: { telegramId: identity.id } });
+    const isNewUser = !user;
     if (user) {
       user = await prisma.user.update({
         where: { id: user.id },
@@ -436,6 +570,9 @@ app.post('/api/auth/telegram', async (req, res) => {
     }
 
     const requiresOnboarding = !user.department || !user.role;
+    if (isNewUser) {
+      notifyUserActivity('👤 [NEW USER]', user, 'Created account through Telegram login.');
+    }
     return res.json({
       token: jwt.sign({ sub: String(user.id) }, jwtSecret, { expiresIn: '8h' }),
       requiresOnboarding,
@@ -453,6 +590,7 @@ app.post('/api/auth/telegram', async (req, res) => {
       return res.status(409).json({ error: 'This Telegram account could not be linked to a user. Contact an administrator.' });
     }
     console.error('Telegram Login Error:', error);
+    res.locals.systemError = error;
     return res.status(500).json({ error: 'Unable to sign in with Telegram.' });
   }
 });
@@ -484,9 +622,11 @@ app.post('/api/user/complete-profile', requireApprovalAuthentication, async (req
       data: { department, role },
       select: { id: true, name: true, role: true, department: true, telegramId: true, telegramUsername: true }
     });
+    notifyUserActivity('👤 [PROFILE COMPLETED]', updatedUser, 'Completed department and role onboarding.');
     return res.json({ user: updatedUser });
   } catch (error) {
     console.error('Complete Profile Error:', error);
+    res.locals.systemError = error;
     return res.status(500).json({ error: 'Unable to complete your profile.' });
   }
 });
@@ -529,6 +669,7 @@ app.post('/api/auth/telegram/link', requireApprovalAuthentication, async (req, r
       return res.status(409).json({ error: 'This Telegram account is already linked to another user.' });
     }
     console.error('Telegram Account Link Error:', error);
+    res.locals.systemError = error;
     return res.status(500).json({ error: 'Unable to link the Telegram account.' });
   }
 });
@@ -554,6 +695,7 @@ app.post('/api/verify-mfa', async (req, res) => {
 
     res.json({ message: "Authentication successful", user });
   } catch (error) {
+    res.locals.systemError = error;
     res.status(500).json({ error: error.message });
   }
 });
@@ -612,6 +754,7 @@ app.post('/api/users', async (req, res) => {
       }
     });
 
+    notifyUserActivity('👤 [NEW USER]', newUser, 'Registered with email and password.');
     res.status(201).json({
       message: 'User registered successfully',
       user: {
@@ -624,6 +767,7 @@ app.post('/api/users', async (req, res) => {
     });
   } catch (error) {
     console.error('Create User Error:', error);
+    res.locals.systemError = error;
     if (error.code === 'P2002') {
       const conflictingFields = Array.isArray(error.meta?.target)
         ? error.meta.target
@@ -666,6 +810,7 @@ app.get('/api/users', requireAdminAuthentication, async (req, res) => {
         res.json(users);
     } catch (err) {
         console.error('Get Users Error:', err);
+        res.locals.systemError = err;
         res.status(500).json({ error: 'Failed to fetch users: ' + err.message });
     }
 });
@@ -683,8 +828,19 @@ app.patch('/api/users/:id', requireAdminAuthentication, async (req, res) => {
       return res.status(400).json({ error: 'Invalid role.' });
     }
 
+    const userId = Number(id);
+    if (!Number.isSafeInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: 'A valid user ID is required.' });
+    }
+    const previousUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, department: true, role: true, email: true }
+    });
+    if (!previousUser) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
     const updatedUser = await prisma.user.update({
-      where: { id: Number(id) },
+      where: { id: userId },
       data: {
         ...(role && { role }),
         ...(department && { department }),
@@ -694,8 +850,12 @@ app.patch('/api/users/:id', requireAdminAuthentication, async (req, res) => {
       }
     });
 
+    if (previousUser.role !== updatedUser.role || previousUser.department !== updatedUser.department) {
+      notifyUserActivity('👤 [PROFILE UPDATED]', updatedUser, 'An administrator changed this user profile.');
+    }
     res.json({ message: "User updated successfully", user: updatedUser });
   } catch (error) {
+    res.locals.systemError = error;
     res.status(500).json({ error: error.message });
   }
 });
@@ -740,6 +900,7 @@ app.delete('/api/users/:id', requireAdminAuthentication, async (req, res) => {
     return res.json({ message: 'User deleted successfully.' });
   } catch (error) {
     console.error('Delete User Error:', error);
+    res.locals.systemError = error;
     return res.status(500).json({ error: 'Failed to delete user.' });
   }
 });
@@ -791,16 +952,18 @@ app.post('/api/requests', requireCompletedProfile, upload.single('attachment'), 
         }
       },
       include: {
-        user: { select: { id: true, name: true, telegramFirstName: true } },
+        user: { select: { id: true, name: true, telegramFirstName: true, department: true } },
         approvalSteps: { orderBy: { sequence: 'asc' } }
       }
     });
     void notifyRequestManagers(newRequest).catch(error => {
       console.error(`Unable to send new-request Telegram notifications for request ${newRequest.id}:`, error);
     });
+    void notifyRequestActivity('📝 [NEW REQUEST]', newRequest);
     return res.status(201).json(newRequest);
   } catch (error) {
     console.error('Create Request Error:', error);
+    res.locals.systemError = error;
     res.status(500).json({ error: error.message });
   }
 });
@@ -817,7 +980,7 @@ app.get('/api/requests', requireCompletedProfile, async (req, res) => {
 
     const visibilityWhere = {};
     if (!['ADMIN', 'SUPER_ADMIN'].includes(actor.role)) {
-      const approvalStage = actor.role === 'MANAGER' && actor.department
+      const approvalStage = DEPARTMENT_APPROVER_ROLES.includes(actor.role) && actor.department
         ? `PENDING_${actor.department.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MANAGER`
         : 'PENDING_EXECUTIVE';
       const assignedStepWhere = {
@@ -825,10 +988,10 @@ app.get('/api/requests', requireCompletedProfile, async (req, res) => {
         approverRole: ['GM', 'DGM'].includes(actor.role) ? 'EXECUTIVE' : 'MANAGER',
         request: { is: { status: 'PENDING', approvalStage } }
       };
-      if (actor.role === 'MANAGER') {
+      if (DEPARTMENT_APPROVER_ROLES.includes(actor.role)) {
         assignedStepWhere.department = actor.department;
       }
-      const assignedSteps = ['MANAGER', 'GM', 'DGM'].includes(actor.role)
+      const assignedSteps = [...DEPARTMENT_APPROVER_ROLES, 'GM', 'DGM'].includes(actor.role)
         ? await prisma.requestApprovalStep.findMany({
           where: assignedStepWhere,
           select: { requestId: true }
@@ -903,7 +1066,80 @@ app.get('/api/requests', requireCompletedProfile, async (req, res) => {
     return res.json({ requests, counts });
   } catch (error) {
     console.error('Get Requests Error:', error);
+    res.locals.systemError = error;
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/requests/:id', requireCompletedProfile, async (req, res) => {
+  const requestId = Number(req.params.id);
+  if (!Number.isSafeInteger(requestId) || requestId <= 0) {
+    return res.status(400).json({ error: 'A valid request ID is required.' });
+  }
+
+  const data = {};
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'title')) {
+    if (typeof req.body.title !== 'string' || !req.body.title.trim()) {
+      return res.status(400).json({ error: 'A request title is required.' });
+    }
+    data.title = req.body.title.trim();
+  }
+  for (const field of ['description', 'category', 'extraFields']) {
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) {
+      data[field] = req.body[field] == null ? null : String(req.body[field]);
+    }
+  }
+  if (!Object.keys(data).length) {
+    return res.status(400).json({ error: 'Provide at least one request field to update.' });
+  }
+
+  try {
+    const request = await prisma.request.findUnique({
+      where: { id: requestId },
+      select: { id: true, userId: true, status: true }
+    });
+    if (!request) {
+      return res.status(404).json({ error: 'Request not found.' });
+    }
+    if (request.userId !== req.approverId) {
+      return res.status(403).json({ error: 'Only the requester can edit this request.' });
+    }
+    if (request.status !== 'PENDING') {
+      return res.status(409).json({ error: 'Only pending requests can be edited.' });
+    }
+
+    const updatedRequest = await prisma.$transaction(async transaction => {
+      const updateResult = await transaction.request.updateMany({
+        where: { id: requestId, userId: req.approverId, status: 'PENDING' },
+        data
+      });
+      if (updateResult.count !== 1) {
+        throw new Error('This request can no longer be edited.');
+      }
+      await transaction.auditLog.create({
+        data: {
+          action: 'REQUEST_UPDATED',
+          remarks: `Updated request fields: ${Object.keys(data).join(', ')}.`,
+          userId: req.approverId,
+          requestId
+        }
+      });
+      return transaction.request.findUnique({
+        where: { id: requestId },
+        include: {
+          user: { select: { name: true, telegramFirstName: true, department: true } }
+        }
+      });
+    });
+    void notifyRequestActivity('📝 [REQUEST UPDATED]', updatedRequest);
+    return res.json({ message: 'Request updated successfully.', request: updatedRequest });
+  } catch (error) {
+    if (error.message === 'This request can no longer be edited.') {
+      return res.status(409).json({ error: error.message });
+    }
+    console.error('Update Request Error:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to update request.' });
   }
 });
 
@@ -924,7 +1160,7 @@ function canUserSeeRequest(request, actor) {
   if (currentStep.approverRole === 'EXECUTIVE') {
     return ['GM', 'DGM'].includes(actor.role);
   }
-  return actor.role === 'MANAGER' &&
+  return DEPARTMENT_APPROVER_ROLES.includes(actor.role) &&
     String(actor.department || '').trim().toLowerCase() ===
       String(currentStep.department || '').trim().toLowerCase();
 }
@@ -964,6 +1200,7 @@ async function requireCompletedProfile(req, res, next) {
       return next();
     } catch (error) {
       console.error('Profile Access Check Error:', error);
+      res.locals.systemError = error;
       return res.status(500).json({ error: 'Unable to verify profile status.' });
     }
   });
@@ -985,6 +1222,7 @@ async function requireAdminAuthentication(req, res, next) {
       return next();
     } catch (error) {
       console.error('Administrator Access Check Error:', error);
+      res.locals.systemError = error;
       return res.status(500).json({ error: 'Unable to verify administrator access.' });
     }
   });
@@ -1025,7 +1263,7 @@ async function handleRequestApproval(req, res) {
       where: { id: approverId },
       select: { id: true, role: true, department: true }
     });
-    if (!approver || !['MANAGER', 'GM', 'DGM'].includes(approver.role)) {
+    if (!approver || ![...DEPARTMENT_APPROVER_ROLES, 'GM', 'DGM'].includes(approver.role)) {
       return res.status(403).json({ error: 'Your account is not assigned to an approval role.' });
     }
     if (request.userId === approver.id) {
@@ -1039,7 +1277,7 @@ async function handleRequestApproval(req, res) {
 
     const isAssignedApprover = currentStep.approverRole === 'EXECUTIVE'
       ? ['GM', 'DGM'].includes(approver.role)
-      : approver.role === 'MANAGER' &&
+      : DEPARTMENT_APPROVER_ROLES.includes(approver.role) &&
         String(approver.department || '').trim().toLowerCase() ===
           String(currentStep.department || '').trim().toLowerCase();
     if (!isAssignedApprover) {
@@ -1099,10 +1337,14 @@ async function handleRequestApproval(req, res) {
       });
       return transaction.request.findUnique({
         where: { id: requestId },
-        include: { approvalSteps: { orderBy: { sequence: 'asc' } } }
+        include: {
+          user: { select: { name: true, telegramFirstName: true, department: true } },
+          approvalSteps: { orderBy: { sequence: 'asc' } }
+        }
       });
     });
 
+    void notifyRequestActivity('🔄 [STATUS CHANGE]', updatedRequest);
     if (updatedRequest.status !== request.status &&
         ['APPROVED', 'REJECTED'].includes(updatedRequest.status)) {
       void notifyRequestOwner(updatedRequest, updatedRequest.status).catch(error => {
@@ -1115,6 +1357,7 @@ async function handleRequestApproval(req, res) {
       return res.status(409).json({ error: error.message });
     }
     console.error('Request Approval Error:', error);
+    res.locals.systemError = error;
     return res.status(500).json({ error: 'Unable to update request approval.' });
   }
 }
@@ -1147,8 +1390,23 @@ app.get('/api/export/requests', requireCompletedProfile, async (req, res) => {
     res.attachment('security_audit_request_report.csv');
     res.send(csv);
   } catch (error) {
+    res.locals.systemError = error;
     res.status(500).json({ error: error.message });
   }
+});
+
+app.use((error, req, res, next) => {
+  const statusCode = Number(error.statusCode || error.status) || 500;
+  if (statusCode >= 500) {
+    res.locals.systemError = error;
+    console.error('Unhandled HTTP request error:', error);
+  }
+  if (res.headersSent) {
+    return next(error);
+  }
+  return res.status(statusCode).json({
+    error: statusCode >= 500 ? 'Internal server error.' : error.message
+  });
 });
 
 const PORT = process.env.PORT || 5000;
@@ -1167,6 +1425,7 @@ async function runStartupInitializer(name, initialize) {
       return;
     }
     console.error(`Error during ${name}:`, error);
+    void notifySuperAdmin(formatServerError(error, `Startup initializer: ${name}`));
   }
 }
 
@@ -1184,6 +1443,7 @@ async function start() {
 if (require.main === module) {
   start().catch(error => {
     console.error('Unable to prepare the database; server was not started:', error);
+    void notifySuperAdmin(formatServerError(error, 'Server startup failure'));
     process.exitCode = 1;
   });
 }
@@ -1197,5 +1457,10 @@ module.exports = {
   verifyTelegramLogin,
   getRequestAmount,
   formatRequestNotification,
-  isValidOnboardingProfile
+  formatServerError,
+  redactSensitiveErrorText,
+  splitTelegramMessage,
+  isValidOnboardingProfile,
+  SELF_ASSIGNABLE_ROLES,
+  ADMIN_ASSIGNABLE_ROLES
 };

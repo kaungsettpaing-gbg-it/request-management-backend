@@ -7,13 +7,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  STAFF
+  ASSISTANT
+  SUPERVISOR
+  IT_SPECIALIST
+  MANAGER
+  DGM
+  GM
+  ADMIN
+  SUPER_ADMIN
+  USER
+  HR
+}
+
 model User {
   id            Int                   @id @default(autoincrement())
   email         String                @unique
   password      String
   name          String?
   department    String?
-  role          String?               @default("USER")
+  role          Role?                 @default(USER)
   telegramId        String?               @unique
   telegramUsername  String?
   telegramFirstName String?

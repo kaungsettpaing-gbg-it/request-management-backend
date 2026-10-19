@@ -143,7 +143,9 @@
                     <select id="onboardingRole" required>
                         <option value="">Select role</option>
                         <option value="STAFF">Staff</option>
-                        <option value="ASSISTANT">Assistant / Supervisor</option>
+                        <option value="ASSISTANT">Assistant</option>
+                        <option value="SUPERVISOR">Supervisor</option>
+                        <option value="IT_SPECIALIST">IT Specialist</option>
                     </select>
                     <button type="submit" style="width: 100%; margin-top: 15px;">Complete Profile</button>
                 </form>
@@ -195,8 +197,10 @@
 
                             <label><small>Role Position (Principle of Least Privilege):</small></label>
                             <select id="regRole">
-                                <option value="STAFF">Staff (Employee)</option>
-                                <option value="ASSISTANT">Assistant / Supervisor</option>
+                                <option value="STAFF">Staff</option>
+                                <option value="ASSISTANT">Assistant</option>
+                                <option value="SUPERVISOR">Supervisor</option>
+                                <option value="IT_SPECIALIST">IT Specialist</option>
                             </select>
                             <button type="submit" style="width: 100%; background: var(--success); margin-top: 15px;">Create Account</button>
                         </form>
@@ -699,12 +703,14 @@
                     </td>
                     <td>
                         <select onchange="updateUserRoleDept(${u.id}, '${u.department}', this.value)">
-                            <option value="STAFF" ${u.role==='STAFF'?'selected':''}>STAFF</option>
-                            <option value="ASSISTANT" ${u.role==='ASSISTANT'?'selected':''}>ASSISTANT</option>
-                            <option value="MANAGER" ${u.role==='MANAGER'?'selected':''}>MANAGER</option>
+                            <option value="STAFF" ${u.role==='STAFF'?'selected':''}>Staff</option>
+                            <option value="ASSISTANT" ${u.role==='ASSISTANT'?'selected':''}>Assistant</option>
+                            <option value="SUPERVISOR" ${u.role==='SUPERVISOR'?'selected':''}>Supervisor</option>
+                            <option value="IT_SPECIALIST" ${u.role==='IT_SPECIALIST'?'selected':''}>IT Specialist</option>
+                            <option value="MANAGER" ${u.role==='MANAGER'?'selected':''}>Manager</option>
                             <option value="DGM" ${u.role==='DGM'?'selected':''}>DGM</option>
                             <option value="GM" ${u.role==='GM'?'selected':''}>GM</option>
-                            <option value="ADMIN" ${u.role==='ADMIN'?'selected':''}>ADMIN</option>
+                            <option value="ADMIN" ${u.role==='ADMIN'?'selected':''}>Admin</option>
                         </select>
                     </td>
                     <td>
@@ -859,7 +865,7 @@
                     req.userId !== currentUser.id && currentStep &&
                     (currentStep.approverRole === 'EXECUTIVE'
                         ? ['GM', 'DGM'].includes(currentUser.role)
-                        : currentUser.role === 'MANAGER' &&
+                        : ['MANAGER', 'SUPERVISOR'].includes(currentUser.role) &&
                             String(currentStep.department || '').trim().toLowerCase() ===
                                 String(currentUser.department || '').trim().toLowerCase());
 
