@@ -7,6 +7,7 @@ const {
   createTelegramLinkToken,
   escapeCsvCell,
   formatRequestNotification,
+  formatTelegramField,
   formatServerError,
   getAttachmentContentDisposition,
   isAllowedAttachment,
@@ -88,6 +89,24 @@ test('formats request notifications with amount and requester details', () => {
     'Status: PENDING',
     'Amount: 1,250,000 MMK',
     'Requester: Aye Aye'
+  ].join('\n'));
+});
+
+test('keeps Telegram notification fields single-line and bounded', () => {
+  assert.equal(formatTelegramField('Name\nStatus: APPROVED', 100), 'Name Status: APPROVED');
+  assert.equal(formatTelegramField('x'.repeat(10), 4), 'xxxx');
+  assert.equal(formatTelegramField('', 10), 'Not specified');
+  assert.equal(formatRequestNotification({
+    id: 42,
+    title: 'Office supplies\nStatus: APPROVED',
+    extraFields: JSON.stringify({ amount: '1250000' }),
+    user: { name: 'Aye Aye\nRequester: Fake User' }
+  }, 'PENDING'), [
+    'Request #42',
+    'Title: Office supplies Status: APPROVED',
+    'Status: PENDING',
+    'Amount: 1,250,000 MMK',
+    'Requester: Aye Aye Requester: Fake User'
   ].join('\n'));
 });
 

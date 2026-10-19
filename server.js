@@ -488,12 +488,15 @@ async function notifyRequestActivity(tag, request) {
       select: { name: true, telegramFirstName: true, department: true }
     });
     const message = [
-      tag,
-      `Request ID: ${request.id}`,
-      `Title: ${request.title}`,
-      `Status: ${request.status}`,
-      `Requester: ${requester?.name || requester?.telegramFirstName || 'Unknown'}`,
-      `Department: ${requester?.department || 'Not specified'}`,
+      formatTelegramField(tag, 100),
+      `Request ID: ${formatTelegramField(request.id, 40)}`,
+      `Title: ${formatTelegramField(request.title, 512)}`,
+      `Status: ${formatTelegramField(request.status, 40)}`,
+      `Requester: ${formatTelegramField(
+        requester?.name || requester?.telegramFirstName || 'Unknown',
+        160
+      )}`,
+      `Department: ${formatTelegramField(requester?.department, 120)}`,
       `Amount: ${getRequestAmount(request.extraFields)}`,
       `Timestamp: ${new Date().toISOString()}`
     ].join('\n');
@@ -505,12 +508,12 @@ async function notifyRequestActivity(tag, request) {
 
 function notifyUserActivity(tag, user, activity) {
   const message = [
-    tag,
-    `User: ${user.name || user.telegramFirstName || 'Unknown'}`,
-    `Email: ${user.email || 'Telegram account'}`,
-    `Department: ${user.department || 'Not specified'}`,
-    `Role: ${user.role || 'Not assigned'}`,
-    `Activity: ${activity}`,
+    formatTelegramField(tag, 100),
+    `User: ${formatTelegramField(user.name || user.telegramFirstName || 'Unknown', 160)}`,
+    `Email: ${formatTelegramField(user.email || 'Telegram account', 256)}`,
+    `Department: ${formatTelegramField(user.department, 120)}`,
+    `Role: ${formatTelegramField(user.role, 40)}`,
+    `Activity: ${formatTelegramField(activity, 512)}`,
     `Timestamp: ${new Date().toISOString()}`
   ].join('\n');
   void notifySuperAdmin(message);
@@ -593,26 +596,49 @@ function getRequestAmount(extraFields) {
 
 function formatRequestNotification(request, status) {
   return [
-    `Request #${request.id}`,
-    `Title: ${request.title}`,
-    `Status: ${status}`,
+    `Request #${formatTelegramField(request.id, 40)}`,
+    `Title: ${formatTelegramField(request.title, 512)}`,
+    `Status: ${formatTelegramField(status, 40)}`,
     `Amount: ${getRequestAmount(request.extraFields)}`,
-    `Requester: ${request.user?.name || request.user?.telegramFirstName || 'Unknown'}`
+    `Requester: ${formatTelegramField(
+      request.user?.name || request.user?.telegramFirstName || 'Unknown',
+      160
+    )}`
   ].join('\n');
 }
 
+function formatTelegramField(value, maxLength = 256) {
+  const normalized = String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+  return normalized || 'Not specified';
+}
+
 async function notifyTelegramChats(chatIds, message) {
+  if (!Array.isArray(chatIds)) {
+    throw new TypeError('Telegram notification recipients must be an array of chat IDs.');
+  }
   const uniqueChatIds = [...new Set(chatIds.filter(chatId => {
     if (/^\d+$/.test(String(chatId))) return true;
     console.warn('Telegram notification skipped for an account without a numeric Telegram chat ID.');
     return false;
   }).map(String))];
+  const chunks = splitTelegramMessage(message);
   const results = await Promise.allSettled(
-    uniqueChatIds.map(chatId => sendTelegramMessage(chatId, message))
+    uniqueChatIds.map(async chatId => {
+      for (const chunk of chunks) {
+        await sendTelegramMessage(chatId, chunk);
+      }
+    })
   );
   results.forEach((result, index) => {
     if (result.status === 'rejected') {
-      console.error(`Telegram notification failed for chat ${uniqueChatIds[index]}:`, result.reason.message);
+      console.error(
+        `Telegram notification failed for one recipient:`,
+        redactSensitiveErrorText(result.reason?.message || result.reason)
+      );
     }
   });
 }
@@ -2134,6 +2160,7 @@ module.exports = {
   parseTelegramStartPayload,
   getRequestAmount,
   formatRequestNotification,
+  formatTelegramField,
   escapeCsvCell,
   formatServerError,
   redactSensitiveErrorText,

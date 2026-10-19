@@ -23,6 +23,13 @@ that redeems it. Signed-in users can generate a fresh link from the account
 panel. The admin Telegram status and test alert are available to Admin and
 Super Admin roles.
 
+New request alerts go to linked `ADMIN`, `SUPER_ADMIN`, `MANAGER`, `GM`, and
+`DGM` accounts. A separate activity alert goes to the Super Admin chat.
+Terminal `APPROVED` or `REJECTED` status notifications go to the requester if
+their Telegram account is linked. Intermediate approval steps remain pending
+and do not send a requester status notification. Notification text is bounded
+and chunked to fit Telegram message limits.
+
 ## Super Admin access recovery
 
 `SUPER_ADMIN_EMAIL` identifies the account that startup will promote to
