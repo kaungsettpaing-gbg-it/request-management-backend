@@ -156,6 +156,9 @@ async function uploadAttachmentToTelegram(file) {
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '') || 'Telegbg_Bot';
 const SUPER_ADMIN_TELEGRAM_CHAT_ID = process.env.SUPER_ADMIN_TELEGRAM_CHAT_ID;
+const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
+const TELEGRAM_WEBHOOK_URL = process.env.TELEGRAM_WEBHOOK_URL;
+const TELEGRAM_LINK_TOKEN_TTL_MS = 10 * 60 * 1000;
 let cachedSuperAdminChatId = null;
 const USER_DEPARTMENTS = [
   'HR', 'Finance', 'IT', 'Cashier', 'Sales & Marketing',
@@ -201,6 +204,196 @@ async function sendTelegramMessage(chatId, text, parseMode) {
     throw new Error(`Telegram sendMessage failed: ${data.description || response.statusText}`);
   }
 }
+
+function createTelegramLinkToken() {
+  const token = crypto.randomBytes(32).toString('base64url');
+  return {
+    token,
+    tokenHash: crypto.createHash('sha256').update(token).digest('hex')
+  };
+}
+
+function createTelegramDeepLink(token, botUsername = TELEGRAM_BOT_USERNAME) {
+  if (typeof botUsername !== 'string' || !/^[A-Za-z0-9_]{5,32}$/.test(botUsername)) {
+    throw new Error('TELEGRAM_BOT_USERNAME must be a valid Telegram bot username.');
+  }
+  return `https://t.me/${botUsername}?start=${encodeURIComponent(token)}`;
+}
+
+function parseTelegramStartPayload(text) {
+  if (typeof text !== 'string') return null;
+  const match = text.trim().match(/^\/start(?:@\w+)?(?:\s+([A-Za-z0-9_-]{43}))?$/);
+  return match?.[1] || null;
+}
+
+async function createUserTelegramLink(userId) {
+  const { token, tokenHash } = createTelegramLinkToken();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + TELEGRAM_LINK_TOKEN_TTL_MS);
+  await prisma.$transaction(async transaction => {
+    await transaction.telegramLinkToken.deleteMany({ where: { userId } });
+    await transaction.telegramLinkToken.create({
+      data: { tokenHash, userId, expiresAt }
+    });
+  });
+  return { deepLink: createTelegramDeepLink(token), expiresAt };
+}
+
+async function getTelegramApiResult(method, options = {}) {
+  if (!TELEGRAM_BOT_TOKEN) {
+    throw new Error('TELEGRAM_BOT_TOKEN is not configured.');
+  }
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: options.body ? 'POST' : 'GET',
+    ...(options.body ? {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options.body)
+    } : {}),
+    signal: AbortSignal.timeout(options.timeoutMs || 10000)
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) {
+    throw new Error(`Telegram ${method} failed: ${data.description || response.statusText}`);
+  }
+  return data.result;
+}
+
+async function configureTelegramWebhook() {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_WEBHOOK_SECRET || !TELEGRAM_WEBHOOK_URL) {
+    console.warn('Telegram webhook auto-setup skipped: configure TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, and TELEGRAM_WEBHOOK_URL.');
+    return false;
+  }
+  let webhookUrl;
+  try {
+    webhookUrl = new URL(TELEGRAM_WEBHOOK_URL);
+  } catch {
+    throw new Error('TELEGRAM_WEBHOOK_URL must be an absolute HTTPS URL.');
+  }
+  if (webhookUrl.protocol !== 'https:' || webhookUrl.pathname !== '/api/telegram/webhook' ||
+      webhookUrl.username || webhookUrl.password || webhookUrl.search || webhookUrl.hash) {
+    throw new Error('TELEGRAM_WEBHOOK_URL must be HTTPS and end exactly with /api/telegram/webhook.');
+  }
+
+  const bot = await getTelegramApiResult('getMe');
+  if (!bot?.is_bot || bot.username?.toLowerCase() !== TELEGRAM_BOT_USERNAME.toLowerCase()) {
+    throw new Error('Telegram bot token does not match TELEGRAM_BOT_USERNAME.');
+  }
+  await getTelegramApiResult('setWebhook', {
+    body: {
+      url: webhookUrl.toString(),
+      secret_token: TELEGRAM_WEBHOOK_SECRET,
+      allowed_updates: ['message']
+    },
+    timeoutMs: 20000
+  });
+  console.log('Telegram webhook configured successfully.');
+  return true;
+}
+
+function safeEqualStrings(first, second) {
+  if (typeof first !== 'string' || typeof second !== 'string') return false;
+  const firstBuffer = Buffer.from(first);
+  const secondBuffer = Buffer.from(second);
+  return firstBuffer.length === secondBuffer.length &&
+    crypto.timingSafeEqual(firstBuffer, secondBuffer);
+}
+
+app.post('/api/telegram/link', requireApprovalAuthentication, async (req, res) => {
+  try {
+    const link = await createUserTelegramLink(req.approverId);
+    return res.json({ ...link, expiresAt: link.expiresAt.toISOString() });
+  } catch (error) {
+    console.error('Unable to create Telegram account link:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to create a Telegram connection link.' });
+  }
+});
+
+app.post('/api/telegram/webhook', async (req, res) => {
+  if (!TELEGRAM_WEBHOOK_SECRET) {
+    return res.status(503).json({ error: 'Telegram webhook is not configured.' });
+  }
+  if (!safeEqualStrings(req.get('x-telegram-bot-api-secret-token'), TELEGRAM_WEBHOOK_SECRET)) {
+    return res.status(401).json({ error: 'Unauthorized Telegram webhook request.' });
+  }
+
+  const message = req.body?.message;
+  const text = typeof message?.text === 'string' ? message.text.trim() : '';
+  const linkToken = parseTelegramStartPayload(text);
+  if (!linkToken) {
+    return res.sendStatus(200);
+  }
+  if (message.chat?.type !== 'private' ||
+      String(message.chat.id) !== String(message.from?.id) ||
+      !/^[1-9]\d{0,19}$/.test(String(message.chat.id))) {
+    return res.sendStatus(200);
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(linkToken).digest('hex');
+  const now = new Date();
+  try {
+    const tokenRecord = await prisma.telegramLinkToken.findUnique({
+      where: { tokenHash },
+      select: { userId: true }
+    });
+    if (!tokenRecord) {
+      await sendTelegramMessage(String(message.chat.id), 'This account link is invalid or expired. Please generate a new link from the Request Management System.');
+      return res.sendStatus(200);
+    }
+
+    await prisma.$transaction(async transaction => {
+      const claimed = await transaction.telegramLinkToken.updateMany({
+        where: { tokenHash, consumedAt: null, expiresAt: { gt: now } },
+        data: { consumedAt: now }
+      });
+      if (claimed.count !== 1) {
+        throw new Error('Telegram account link is invalid, expired, or already used.');
+      }
+      await transaction.user.update({
+        where: { id: tokenRecord.userId },
+        data: {
+          telegramId: String(message.chat.id),
+          telegramUsername: typeof message.from.username === 'string'
+            ? message.from.username.replace(/^@+/, '').toLowerCase()
+            : null,
+          telegramFirstName: typeof message.from.first_name === 'string'
+            ? message.from.first_name.trim().slice(0, 256)
+            : null
+        }
+      });
+    });
+
+  } catch (error) {
+    if (error.code === 'P2002') {
+      await sendTelegramMessage(
+        String(message.chat.id),
+        'This Telegram account is already connected to another user. Contact an administrator if you need help.'
+      );
+      return res.sendStatus(200);
+    }
+    if (error.message === 'Telegram account link is invalid, expired, or already used.') {
+      await sendTelegramMessage(
+        String(message.chat.id),
+        'This account link is invalid, expired, or already used. Please generate a new link from the Request Management System.'
+      );
+      return res.sendStatus(200);
+    }
+    console.error('Telegram account-link webhook failed:', error);
+    res.locals.systemError = error;
+    return res.sendStatus(500);
+  }
+
+  try {
+    await sendTelegramMessage(
+      String(message.chat.id),
+      '✅ Account linked successfully! You will now receive system notifications here.'
+    );
+  } catch (error) {
+    console.error('Telegram account linked but confirmation message could not be delivered:', error);
+    void notifySuperAdmin(formatServerError(error, 'Telegram link confirmation delivery'));
+  }
+  return res.sendStatus(200);
+});
 
 function redactSensitiveErrorText(text, botToken = TELEGRAM_BOT_TOKEN) {
   let safeText = String(text || 'Unknown error');
@@ -937,23 +1130,38 @@ app.post('/api/users', async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await prisma.user.create({
-      data: {
-        name: normalizedName,
-        email: normalizedEmail,
-        password: hashedPassword,
-        department: normalizedDepartment,
-        role: normalizedRole,
-        telegramUsername: typeof (telegramUsername ?? telegramId) === 'string' &&
-          (telegramUsername ?? telegramId).trim()
-          ? (telegramUsername ?? telegramId).replace(/^@+/, '').trim().toLowerCase()
-          : null
-      }
+    const linkToken = createTelegramLinkToken();
+    const linkExpiresAt = new Date(Date.now() + TELEGRAM_LINK_TOKEN_TTL_MS);
+    const telegramLinkUrl = createTelegramDeepLink(linkToken.token);
+    const newUser = await prisma.$transaction(async transaction => {
+      const user = await transaction.user.create({
+        data: {
+          name: normalizedName,
+          email: normalizedEmail,
+          password: hashedPassword,
+          department: normalizedDepartment,
+          role: normalizedRole,
+          telegramUsername: typeof (telegramUsername ?? telegramId) === 'string' &&
+            (telegramUsername ?? telegramId).trim()
+            ? (telegramUsername ?? telegramId).replace(/^@+/, '').trim().toLowerCase()
+            : null
+        }
+      });
+      await transaction.telegramLinkToken.create({
+        data: {
+          tokenHash: linkToken.tokenHash,
+          userId: user.id,
+          expiresAt: linkExpiresAt
+        }
+      });
+      return user;
     });
 
     notifyUserActivity('👤 [NEW USER]', newUser, 'Registered with email and password.');
     res.status(201).json({
       message: 'User registered successfully',
+      telegramLinkUrl,
+      telegramLinkExpiresAt: linkExpiresAt.toISOString(),
       user: {
         id: newUser.id,
         name: newUser.name,
@@ -986,6 +1194,60 @@ app.post('/api/users', async (req, res) => {
 });
 
 // Get All Users API
+app.get('/api/telegram/status', requireAdminAuthentication, async (req, res) => {
+  let botActive = false;
+  let botUsername = null;
+  let webhookInfo = null;
+  let superAdminConnected = false;
+  let superAdminConnectionError = null;
+
+  if (TELEGRAM_BOT_TOKEN) {
+    try {
+      const bot = await getTelegramApiResult('getMe');
+      botActive = Boolean(bot?.is_bot);
+      botUsername = bot?.username || null;
+      if (botActive) {
+        try {
+          webhookInfo = await getTelegramApiResult('getWebhookInfo');
+        } catch (error) {
+          console.error('Unable to check Telegram webhook configuration:', error.message);
+        }
+      }
+    } catch (error) {
+      console.error('Telegram bot health check failed:', error.message);
+    }
+  }
+
+  try {
+    superAdminConnected = Boolean(await resolveSuperAdminChatId());
+  } catch (error) {
+    superAdminConnectionError = error.message;
+    console.error('Unable to resolve Super Admin Telegram chat:', error.message);
+  }
+
+  try {
+    const userLinkedCount = await prisma.user.count({
+      where: { telegramId: { not: null } }
+    });
+    return res.json({
+      botActive,
+      superAdminConnected,
+      superAdminConnectionSource: SUPER_ADMIN_TELEGRAM_CHAT_ID
+        ? 'environment'
+        : (superAdminConnected ? 'database' : null),
+      ...(superAdminConnectionError && { superAdminConnectionError }),
+      userLinkedCount,
+      botUsername,
+      webhookConfigured: Boolean(webhookInfo?.url && TELEGRAM_WEBHOOK_SECRET),
+      webhookActive: Boolean(webhookInfo?.url?.endsWith('/api/telegram/webhook'))
+    });
+  } catch (error) {
+    console.error('Telegram connection status check failed:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to check Telegram connection status.' });
+  }
+});
+
 app.post('/api/admin/telegram/test', requireAdminAuthentication, async (req, res) => {
   const result = await notifySuperAdmin([
     '✅ [TELEGRAM TEST]',
@@ -1795,6 +2057,9 @@ async function start() {
   return new Promise((resolve, reject) => {
     const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server is running on port ${PORT}`);
+    void configureTelegramWebhook().catch(error => {
+    console.error('Telegram webhook auto-setup failed:', error.message);
+    });
     resolve(server);
     });
     server.once('error', reject);
@@ -1817,6 +2082,9 @@ module.exports = {
   getApprovalTransition,
   canUserSeeRequest,
   verifyTelegramLogin,
+  createTelegramLinkToken,
+  createTelegramDeepLink,
+  parseTelegramStartPayload,
   getRequestAmount,
   formatRequestNotification,
   escapeCsvCell,
@@ -1826,6 +2094,7 @@ module.exports = {
   isAllowedAttachment,
   safeAttachmentFileName,
   getAttachmentContentDisposition,
+  configureTelegramWebhook,
   isValidOnboardingProfile,
   SELF_ASSIGNABLE_ROLES,
   ADMIN_ASSIGNABLE_ROLES

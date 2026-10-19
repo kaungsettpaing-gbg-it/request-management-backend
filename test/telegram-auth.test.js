@@ -3,12 +3,15 @@ const crypto = require('node:crypto');
 const test = require('node:test');
 const {
   ADMIN_ASSIGNABLE_ROLES,
+  createTelegramDeepLink,
+  createTelegramLinkToken,
   escapeCsvCell,
   formatRequestNotification,
   formatServerError,
   getAttachmentContentDisposition,
   isAllowedAttachment,
   isValidOnboardingProfile,
+  parseTelegramStartPayload,
   redactSensitiveErrorText,
   safeAttachmentFileName,
   SELF_ASSIGNABLE_ROLES,
@@ -52,6 +55,25 @@ test('rejects altered signatures and stale or future Telegram login payloads', (
   assert.equal(verifyTelegramLogin({ ...valid, first_name: 'Changed' }, botToken, nowSeconds), null);
   assert.equal(verifyTelegramLogin(makePayload({ auth_date: nowSeconds - 86401 }), botToken, nowSeconds), null);
   assert.equal(verifyTelegramLogin(makePayload({ auth_date: nowSeconds + 31 }), botToken, nowSeconds), null);
+});
+
+test('creates short opaque Telegram deep-link tokens and accepts only valid start payloads', () => {
+  const first = createTelegramLinkToken();
+  const second = createTelegramLinkToken();
+  assert.match(first.token, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(first.tokenHash, /^[a-f0-9]{64}$/);
+  assert.notEqual(first.token, second.token);
+  assert.notEqual(first.tokenHash, second.tokenHash);
+  assert.equal(
+    createTelegramDeepLink(first.token, 'Telegbg_Bot'),
+    `https://t.me/Telegbg_Bot?start=${first.token}`
+  );
+  assert.throws(() => createTelegramDeepLink(first.token, 'invalid username'));
+  assert.equal(parseTelegramStartPayload(`/start ${first.token}`), first.token);
+  assert.equal(parseTelegramStartPayload(`/start@Telegbg_Bot ${first.token}`), first.token);
+  assert.equal(parseTelegramStartPayload('/start'), null);
+  assert.equal(parseTelegramStartPayload('/start user_42'), null);
+  assert.equal(parseTelegramStartPayload(`/start ${first.token} extra`), null);
 });
 
 test('formats request notifications with amount and requester details', () => {

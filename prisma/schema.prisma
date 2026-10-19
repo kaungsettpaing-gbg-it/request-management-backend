@@ -38,6 +38,18 @@ model User {
   auditLogs           AuditLog[]
   approvalSteps       RequestApprovalStep[] @relation("RequestStepApprover")
   uploadedAttachments Attachment[]          @relation("RequestAttachmentUploader")
+  telegramLinkTokens  TelegramLinkToken[]
+}
+
+model TelegramLinkToken {
+  tokenHash  String   @id
+  userId     Int
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
 }
 
 model Request {

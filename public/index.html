@@ -181,20 +181,48 @@
             font-weight: 700;
             text-shadow: 0 1px 2px rgba(0,0,0,0.2);
         }
-        .telegram-connect-button svg { flex: 0 0 22px; }
-        .telegram-register-widget {
-            display: flex;
-            flex: 1;
-            justify-content: flex-end;
-            margin-left: auto;
-            min-height: 36px;
+        .telegram-connect-button:disabled {
+            cursor: not-allowed;
+            filter: grayscale(0.45);
+            opacity: 0.62;
         }
-        .telegram-register-widget iframe { vertical-align: middle; }
-        .telegram-register-widget:empty::after {
-            content: "Loading Telegram…";
-            color: rgba(255,255,255,0.8);
+        .telegram-connect-action {
+            width: 100%;
+            justify-content: center;
+            margin-top: 10px;
+            background: #2AABEE;
+        }
+        .telegram-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            margin: 0 8px;
+            padding: 6px 10px;
+            border: 1px solid rgba(148,163,184,0.35);
+            border-radius: 999px;
+            background: rgba(15,23,42,0.65);
+            color: #cbd5e1;
             font-size: 12px;
+            font-weight: 600;
         }
+        .telegram-status-badge::before {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #94a3b8;
+            content: "";
+        }
+        .telegram-status-badge.is-connected {
+            border-color: rgba(34,197,94,0.45);
+            color: #bbf7d0;
+        }
+        .telegram-status-badge.is-connected::before { background: #22c55e; }
+        .telegram-status-badge.is-disconnected {
+            border-color: rgba(239,68,68,0.45);
+            color: #fecaca;
+        }
+        .telegram-status-badge.is-disconnected::before { background: #ef4444; }
+        .telegram-connect-button svg { flex: 0 0 22px; }
 
         .req-tabs-container { display: flex; gap: 8px; background: #0f172a; padding: 6px; border-radius: 10px; margin-bottom: 20px; border: 1px solid var(--border-color); }
         .req-tab-btn { flex: 1; padding: 12px; text-align: center; background: transparent; color: var(--text-muted); border: none; font-weight: 600; cursor: pointer; border-radius: 8px; transition: all 0.2s; }
@@ -266,7 +294,11 @@
             <span id="execTag" class="executive-tag" style="display:none; margin-left:10px;">EXECUTIVE LEVEL</span>
             <button onclick="logout()" style="float: right; padding: 6px 14px; background: var(--danger); font-size: 12px;">Logout</button>
             <div style="clear: both; padding-top: 10px;">
-                <small>Link Telegram for login and request notifications:</small>
+                <small>Connect Telegram for login and instant request alerts:</small>
+                <div style="margin: 8px 0;">
+                    <button id="accountTelegramConnectButton" class="telegram-connect-button telegram-connect-action" type="button" onclick="connectTelegramForCurrentAccount()">Connect Telegram for Instant Alerts</button>
+                    <span id="accountTelegramStatus" role="status" aria-live="polite"></span>
+                </div>
                 <div id="telegramLinkWidget"></div>
             </div>
         </div>
@@ -371,8 +403,9 @@
                                     <path fill="currentColor" d="M21.6 3.2 18.4 20c-.2 1.2-.9 1.5-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.3-8.4c.4-.4-.1-.6-.6-.2L5.8 13.6.9 12c-1.1-.3-1.1-1 .2-1.5L20.2 3c.9-.3 1.7.2 1.4.2Z"/>
                                 </svg>
                                 <span>Connect Telegram Bot</span>
-                                <div id="telegramRegisterWidget" class="telegram-register-widget" aria-label="Continue with Telegram"></div>
                             </div>
+                            <button id="telegramRegisterConnectButton" class="telegram-connect-button telegram-connect-action" type="button" onclick="openRegistrationTelegramLink()" disabled>Connect Telegram for Instant Alerts</button>
+                            <small id="telegramRegisterStatus" role="status" aria-live="polite">Create your account to generate a secure one-time connection link.</small>
                         </aside>
                     </div>
                 </div>
@@ -402,7 +435,9 @@
             <div class="card" id="userManagementCard" style="display: none; border-left: 5px solid #9333ea;">
                 <h3>👥 PoLP & Temporary Time-Bound Access Elevation</h3>
                 <div style="margin-bottom: 12px;">
-                    <button type="button" onclick="testTelegramNotifications()">Send Telegram Test</button>
+                    <span id="telegramAdminStatus" class="telegram-status-badge" role="status" aria-live="polite">Checking Telegram…</span>
+                    <button type="button" onclick="checkTelegramStatus()">Refresh Status</button>
+                    <button type="button" onclick="testTelegramNotifications()">Test Admin Alert</button>
                     <span id="telegramTestResult" role="status" aria-live="polite"></span>
                 </div>
                 <div style="overflow-x: auto;">
@@ -513,6 +548,7 @@
         let requestLoadId = 0;
         const TELEGRAM_AUTH_ENDPOINT = '/api/auth/telegram';
         let pendingProfileToken = null;
+        let registrationTelegramLink = null;
 
         function switchAuthTab(tab) {
             const loginContent = document.getElementById('loginTabContent');
@@ -569,6 +605,84 @@
             }
         }
 
+        function openRegistrationTelegramLink() {
+            if (!registrationTelegramLink) {
+                document.getElementById('telegramRegisterStatus').textContent =
+                    'Create your account first to generate a secure Telegram connection link.';
+                return;
+            }
+            openTelegramLink(registrationTelegramLink);
+        }
+
+        function openTelegramLink(url) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.hidden = true;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        }
+
+        async function connectTelegramForCurrentAccount() {
+            const button = document.getElementById('accountTelegramConnectButton');
+            const status = document.getElementById('accountTelegramStatus');
+            if (!sessionToken) {
+                status.textContent = 'Sign in to create a Telegram connection link.';
+                return;
+            }
+            button.disabled = true;
+            status.textContent = 'Generating secure Telegram link…';
+            try {
+                const response = await fetch('/api/telegram/link', {
+                    method: 'POST',
+                    headers: { Authorization: 'Bearer ' + sessionToken }
+                });
+                const data = await response.json();
+                if (!response.ok || !data.deepLink) {
+                    throw new Error(data.error || 'Unable to create a Telegram connection link.');
+                }
+                openTelegramLink(data.deepLink);
+                status.textContent = 'Telegram link opened. Complete /start in the bot within 10 minutes.';
+            } catch (error) {
+                status.textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        async function checkTelegramStatus() {
+            const badge = document.getElementById('telegramAdminStatus');
+            if (!badge || !sessionToken) return;
+            badge.className = 'telegram-status-badge';
+            badge.textContent = 'Checking Telegram…';
+            try {
+                const response = await fetch('/api/telegram/status', {
+                    headers: { Authorization: 'Bearer ' + sessionToken }
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to check Telegram status.');
+                }
+                const active = data.botActive && data.superAdminConnected;
+                badge.className = 'telegram-status-badge ' +
+                    (active ? 'is-connected' : 'is-disconnected');
+                badge.textContent = active
+                    ? `Telegram active · ${data.userLinkedCount} users linked`
+                    : (!data.botActive
+                        ? 'Bot unavailable or token missing'
+                        : 'Super Admin chat is not connected');
+                if (data.botActive && (!data.webhookConfigured || !data.webhookActive)) {
+                    badge.textContent += ' · webhook not active';
+                    badge.className = 'telegram-status-badge is-disconnected';
+                }
+            } catch (error) {
+                badge.className = 'telegram-status-badge is-disconnected';
+                badge.textContent = 'Telegram status unavailable: ' + error.message;
+            }
+        }
+
         async function loadTelegramWidgets() {
             const response = await fetch('/api/config');
             if (!response.ok) {
@@ -579,8 +693,7 @@
 
             [
                 { id: 'telegramLoginWidget', size: 'large', callback: 'onTelegramAuth(user)' },
-                { id: 'telegramLinkWidget', size: 'small', callback: 'onTelegramAuth(user, true)' },
-                { id: 'telegramRegisterWidget', size: 'large', callback: 'onTelegramAuth(user)' }
+                { id: 'telegramLinkWidget', size: 'small', callback: 'onTelegramAuth(user, true)' }
             ].forEach(({ id, size, callback }) => {
                 const container = document.getElementById(id);
                 if (!container) return;
@@ -741,6 +854,18 @@
                 document.getElementById('sessName').innerText = currentUser.name || 'User';
                 document.getElementById('sessDept').innerText = currentUser.department || 'N/A';
                 document.getElementById('sessRole').innerText = currentUser.role || 'STAFF';
+                const accountTelegramButton = document.getElementById('accountTelegramConnectButton');
+                const accountTelegramStatus = document.getElementById('accountTelegramStatus');
+                if (accountTelegramButton) {
+                    accountTelegramButton.textContent = currentUser.telegramId
+                        ? 'Reconnect Telegram for Instant Alerts'
+                        : 'Connect Telegram for Instant Alerts';
+                }
+                if (accountTelegramStatus) {
+                    accountTelegramStatus.textContent = currentUser.telegramId
+                        ? 'Telegram account is linked.'
+                        : 'Telegram account is not linked.';
+                }
 
                 const targetDeptContainer = document.getElementById('targetDeptContainer');
                 const canSelectTargetDepartment = currentUser.role !== 'STAFF' ||
@@ -757,6 +882,7 @@
                     document.getElementById('requestFormCard').style.display = 'none';
                     document.getElementById('userManagementCard').style.display = 'block';
                     loadUsers();
+                    checkTelegramStatus();
                 } else if (['GM', 'DGM'].includes(currentUser.role)) {
                     document.getElementById('superTag').style.display = 'none';
                     document.getElementById('execTag').style.display = 'inline-block';
@@ -1265,10 +1391,17 @@
                             return;
                         }
 
-                        alert("Account created successfully. You can now log in.");
+                        registrationTelegramLink = data.telegramLinkUrl || null;
                         userForm.reset();
-                        switchAuthTab('login');
                         document.getElementById('loginEmail').value = email.trim();
+                        const connectButton = document.getElementById('telegramRegisterConnectButton');
+                        const connectStatus = document.getElementById('telegramRegisterStatus');
+                        if (connectButton) connectButton.disabled = !registrationTelegramLink;
+                        if (connectStatus) {
+                            connectStatus.textContent = registrationTelegramLink
+                                ? 'Account created. Connect Telegram now; this one-time link expires in 10 minutes. Then sign in.'
+                                : 'Account created, but a Telegram link could not be generated. Sign in and connect it from your account panel.';
+                        }
                     } catch (err) {
                         alert("Registration Error: " + err.message);
                     } finally {
