@@ -661,6 +661,8 @@
             const button = document.getElementById('accountTelegramConnectButton');
             const status = document.getElementById('accountTelegramStatus');
             if (!sessionToken) {
+                status.hidden = false;
+                status.className = 'telegram-status-badge is-disconnected';
                 status.textContent = 'Sign in to create a Telegram connection link.';
                 return;
             }
@@ -671,6 +673,7 @@
             const telegramWindow = window.open('about:blank', '_blank');
             if (!telegramWindow) {
                 status.hidden = false;
+                status.className = 'telegram-status-badge is-disconnected';
                 status.textContent = 'Allow pop-ups to open the Telegram connection link.';
                 return;
             }
@@ -694,6 +697,7 @@
             } catch (error) {
                 stopTelegramConnectionPolling();
                 telegramWindow.close();
+                status.className = 'telegram-status-badge is-disconnected';
                 status.textContent = error.message;
             } finally {
                 button.disabled = false;

@@ -309,13 +309,27 @@ function safeEqualStrings(first, second) {
 }
 
 app.post('/api/telegram/link', requireApprovalAuthentication, async (req, res) => {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_BOT_USERNAME ||
+      !TELEGRAM_WEBHOOK_SECRET || !TELEGRAM_WEBHOOK_URL) {
+    return res.status(503).json({
+      error: 'Telegram account linking is not ready. Configure the bot token, bot username, webhook secret, and public webhook URL.'
+    });
+  }
   try {
+    const webhookConfigured = await configureTelegramWebhook();
+    if (!webhookConfigured) {
+      return res.status(503).json({
+        error: 'Telegram webhook is not configured. Check the bot credentials and public webhook URL, then try again.'
+      });
+    }
     const link = await createUserTelegramLink(req.approverId);
     return res.json({ ...link, expiresAt: link.expiresAt.toISOString() });
   } catch (error) {
     console.error('Unable to create Telegram account link:', error);
     res.locals.systemError = error;
-    return res.status(500).json({ error: 'Unable to create a Telegram connection link.' });
+    return res.status(503).json({
+      error: 'Unable to prepare Telegram account linking. Check the bot token, bot username, webhook secret, and public webhook URL.'
+    });
   }
 });
 
