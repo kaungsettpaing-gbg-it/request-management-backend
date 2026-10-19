@@ -37,7 +37,10 @@ any saved monthly reports whose Telegram notification has not yet succeeded.
 Telegram delivery requires `TELEGRAM_BOT_TOKEN` and a configured or linked
 Super Admin chat. Super Admins can download the in-progress current-month
 summary and request details as an Excel workbook from the dashboard export
-menu or `GET /api/reports/monthly`.
+menu or `GET /api/reports/monthly`. The request sheet contains Request ID,
+Title, Requested By, Department, Status, Approved/Rejected By, Created Date,
+and Resolved Date. Telegram details use requester/department, decision maker,
+status, and both dates when the request has been resolved.
 
 ## Super Admin access recovery
 

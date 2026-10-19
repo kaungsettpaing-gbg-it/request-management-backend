@@ -1,7 +1,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
-  formatMonthlyReportMessage,
+  formatMonthlyReportMessages,
+  getMonthlyRequestDetails,
   getUtcMonthPeriod,
   summarizeRequests
 } = require('../lib/monthly-report');
@@ -35,18 +36,153 @@ test('monthly report summaries count all three request statuses', () => {
   });
 });
 
-test('monthly Telegram summary formats status counts with icons', () => {
-  assert.equal(formatMonthlyReportMessage({
+test('monthly request mapping includes requester, reviewer, and resolution date', () => {
+  const request = {
+    id: 101,
+    title: 'Laptop Upgrade',
+    status: 'APPROVED',
+    createdAt: new Date('2026-10-05T09:30:00.000Z'),
+    updatedAt: new Date('2026-10-05T12:00:00.000Z'),
+    user: { name: 'User A', department: 'IT' },
+    approvalSteps: [
+      {
+        status: 'APPROVED',
+        actedAt: new Date('2026-10-05T11:00:00.000Z'),
+        approvedBy: { name: 'Manager A' }
+      },
+      {
+        status: 'APPROVED',
+        actedAt: new Date('2026-10-05T12:00:00.000Z'),
+        approvedBy: { name: 'Super Admin' }
+      }
+    ]
+  };
+
+  const details = getMonthlyRequestDetails(request);
+  assert.deepEqual(Object.keys(details), [
+    'requestId',
+    'title',
+    'requestedBy',
+    'department',
+    'status',
+    'approvedRejectedBy',
+    'createdDate',
+    'resolvedDate'
+  ]);
+  assert.deepEqual(details, {
+    requestId: 101,
+    title: 'Laptop Upgrade',
+    requestedBy: 'User A',
+    department: 'IT',
+    status: '✅ Approved',
+    approvedRejectedBy: 'Super Admin',
+    createdDate: new Date('2026-10-05T09:30:00.000Z'),
+    resolvedDate: new Date('2026-10-05T12:00:00.000Z')
+  });
+});
+
+test('rejected reports identify the rejecting reviewer and use audit history as fallback', () => {
+  assert.deepEqual(getMonthlyRequestDetails({
+    id: 103,
+    title: 'Access Rights Request',
+    status: 'REJECTED',
+    createdAt: new Date('2026-10-12T10:00:00.000Z'),
+    updatedAt: new Date('2026-10-12T12:00:00.000Z'),
+    user: { name: 'User B', department: 'HR' },
+    approvalSteps: [],
+    auditLogs: [{
+      action: 'MANAGER_REJECTED',
+      createdAt: new Date('2026-10-12T12:00:00.000Z'),
+      user: { name: 'Manager B' }
+    }]
+  }), {
+    requestId: 103,
+    title: 'Access Rights Request',
+    requestedBy: 'User B',
+    department: 'HR',
+    status: '❌ Rejected',
+    approvedRejectedBy: 'Manager B',
+    createdDate: new Date('2026-10-12T10:00:00.000Z'),
+    resolvedDate: new Date('2026-10-12T12:00:00.000Z')
+  });
+});
+
+test('pending report rows have no resolution date and expose latest reviewer', () => {
+  assert.deepEqual(getMonthlyRequestDetails({
+    id: 102,
+    title: 'Access Rights Request',
+    status: 'PENDING',
+    createdAt: new Date('2026-10-12T10:00:00.000Z'),
+    updatedAt: new Date('2026-10-12T11:00:00.000Z'),
+    user: { name: 'User B', department: 'HR' },
+    approvalSteps: [{
+      status: 'APPROVED',
+      actedAt: new Date('2026-10-12T11:00:00.000Z'),
+      approvedBy: { name: 'Manager' }
+    }]
+  }), {
+    requestId: 102,
+    title: 'Access Rights Request',
+    requestedBy: 'User B',
+    department: 'HR',
+    status: '⏳ Pending',
+    approvedRejectedBy: 'Manager',
+    createdDate: new Date('2026-10-12T10:00:00.000Z'),
+    resolvedDate: null
+  });
+});
+
+test('monthly Telegram summary includes detailed entries and emits bounded HTML chunks', () => {
+  const messages = formatMonthlyReportMessages({
     monthKey: '2026-09',
     totalRequests: 12,
     approvedCount: 7,
     rejectedCount: 2,
     pendingCount: 3
-  }), [
-    '📊 Monthly Request Report — 2026-09',
-    'Total requests: 12',
-    '✅ Approved: 7',
-    '❌ Rejected: 2',
-    '⏳ Pending: 3'
-  ].join('\n'));
+  }, [{
+    id: 101,
+    title: '<Laptop & Upgrade>',
+    status: 'APPROVED',
+    createdAt: new Date('2026-10-05T09:30:00.000Z'),
+    updatedAt: new Date('2026-10-05T12:00:00.000Z'),
+    user: { name: 'User A', department: 'IT' },
+    approvalSteps: [{
+      status: 'APPROVED',
+      actedAt: new Date('2026-10-05T12:00:00.000Z'),
+      approvedBy: { name: 'Super Admin' }
+    }]
+  }]);
+
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /📊 <b>Monthly Request Report \(Summary\) — 2026-09<\/b>/);
+  assert.match(messages[0], /• <b>Total Requests:<\/b> 12/);
+  assert.match(messages[0], /• <b>Approved:<\/b> ✅ 7/);
+  assert.match(messages[0], /• <b>Rejected:<\/b> ❌ 2/);
+  assert.match(messages[0], /• <b>Pending:<\/b> ⏳ 3/);
+  assert.match(messages[0], /#REQ-101:<\/b> &lt;Laptop &amp; Upgrade&gt;/);
+  assert.match(messages[0], /Requested By:<\/b> User A \(IT\)/);
+  assert.match(messages[0], /Status:<\/b> ✅ Approved \(By: Super Admin\)/);
+  assert.match(messages[0], /Resolved:<\/b> Oct 05, 2026/);
+  assert.ok(messages[0].length <= 3500);
+});
+
+test('monthly Telegram details split into separate valid-sized messages', () => {
+  const requests = Array.from({ length: 16 }, (_, index) => ({
+    id: index + 1,
+    title: `Request ${index + 1} ${'x'.repeat(400)}`,
+    status: 'PENDING',
+    createdAt: new Date('2026-10-05T09:30:00.000Z'),
+    user: { name: 'User A', department: 'IT' }
+  }));
+  const messages = formatMonthlyReportMessages({
+    monthKey: '2026-09',
+    totalRequests: requests.length,
+    approvedCount: 0,
+    rejectedCount: 0,
+    pendingCount: requests.length
+  }, requests);
+
+  assert.ok(messages.length > 1);
+  assert.ok(messages.every(message => message.length <= 3500));
+  assert.match(messages[1], /Detailed Breakdown \(continued\)/);
 });

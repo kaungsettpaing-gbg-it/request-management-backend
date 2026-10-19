@@ -205,6 +205,8 @@
             font-size: 12px;
             font-weight: 600;
         }
+        .telegram-status-badge[hidden],
+        .telegram-connect-button[hidden] { display: none; }
         .telegram-status-badge::before {
             width: 8px;
             height: 8px;
@@ -214,7 +216,9 @@
         }
         .telegram-status-badge.is-connected {
             border-color: rgba(34,197,94,0.45);
+            background: linear-gradient(135deg, rgba(34,197,94,0.25), rgba(21,128,61,0.18));
             color: #bbf7d0;
+            box-shadow: 0 6px 18px rgba(34,197,94,0.16), inset 0 1px 0 rgba(255,255,255,0.16);
         }
         .telegram-status-badge.is-connected::before { background: #22c55e; }
         .telegram-status-badge.is-disconnected {
@@ -296,10 +300,9 @@
             <div style="clear: both; padding-top: 10px;">
                 <small>Connect Telegram for login and instant request alerts:</small>
                 <div style="margin: 8px 0;">
-                    <button id="accountTelegramConnectButton" class="telegram-connect-button telegram-connect-action" type="button" onclick="connectTelegramForCurrentAccount()">Connect Telegram for Instant Alerts</button>
-                    <span id="accountTelegramStatus" role="status" aria-live="polite"></span>
+                    <button id="accountTelegramConnectButton" class="telegram-connect-button telegram-connect-action" type="button" onclick="connectTelegramForCurrentAccount(event)" hidden>Connect Telegram for Instant Alerts</button>
+                    <span id="accountTelegramStatus" class="telegram-status-badge" role="status" aria-live="polite" hidden></span>
                 </div>
-                <div id="telegramLinkWidget"></div>
             </div>
         </div>
 
@@ -594,6 +597,7 @@
                 }
                 currentUser = data.user;
                 if (linkAccount) {
+                    updateUI();
                     alert(data.message);
                 } else {
                     sessionToken = data.token;
@@ -626,14 +630,28 @@
             link.remove();
         }
 
-        async function connectTelegramForCurrentAccount() {
+        async function connectTelegramForCurrentAccount(event) {
+            event?.preventDefault();
             const button = document.getElementById('accountTelegramConnectButton');
             const status = document.getElementById('accountTelegramStatus');
             if (!sessionToken) {
                 status.textContent = 'Sign in to create a Telegram connection link.';
                 return;
             }
+            if (currentUser?.telegramId) {
+                updateUI();
+                return;
+            }
+            const telegramWindow = window.open('about:blank', '_blank');
+            if (!telegramWindow) {
+                status.hidden = false;
+                status.textContent = 'Allow pop-ups to open the Telegram connection link.';
+                return;
+            }
+            telegramWindow.opener = null;
             button.disabled = true;
+            status.hidden = false;
+            status.className = 'telegram-status-badge';
             status.textContent = 'Generating secure Telegram link…';
             try {
                 const response = await fetch('/api/telegram/link', {
@@ -644,9 +662,10 @@
                 if (!response.ok || !data.deepLink) {
                     throw new Error(data.error || 'Unable to create a Telegram connection link.');
                 }
-                openTelegramLink(data.deepLink);
-                status.textContent = 'Telegram link opened. Complete /start in the bot within 10 minutes.';
+                telegramWindow.location.replace(data.deepLink);
+                status.textContent = 'Telegram opened. Complete /start in the bot within 10 minutes.';
             } catch (error) {
+                telegramWindow.close();
                 status.textContent = error.message;
             } finally {
                 button.disabled = false;
@@ -693,8 +712,7 @@
             if (!telegramBotUsername) return;
 
             [
-                { id: 'telegramLoginWidget', size: 'large', callback: 'onTelegramAuth(user)' },
-                { id: 'telegramLinkWidget', size: 'small', callback: 'onTelegramAuth(user, true)' }
+                { id: 'telegramLoginWidget', size: 'large', callback: 'onTelegramAuth(user)' }
             ].forEach(({ id, size, callback }) => {
                 const container = document.getElementById(id);
                 if (!container) return;
@@ -858,14 +876,16 @@
                 const accountTelegramButton = document.getElementById('accountTelegramConnectButton');
                 const accountTelegramStatus = document.getElementById('accountTelegramStatus');
                 if (accountTelegramButton) {
-                    accountTelegramButton.textContent = currentUser.telegramId
-                        ? 'Reconnect Telegram for Instant Alerts'
-                        : 'Connect Telegram for Instant Alerts';
+                    accountTelegramButton.hidden = Boolean(currentUser.telegramId);
+                    accountTelegramButton.disabled = Boolean(currentUser.telegramId);
                 }
                 if (accountTelegramStatus) {
+                    accountTelegramStatus.hidden = !currentUser.telegramId;
+                    accountTelegramStatus.className = 'telegram-status-badge' +
+                        (currentUser.telegramId ? ' is-connected' : '');
                     accountTelegramStatus.textContent = currentUser.telegramId
-                        ? 'Telegram account is linked.'
-                        : 'Telegram account is not linked.';
+                        ? '✅ Telegram Connected'
+                        : '';
                 }
 
                 const targetDeptContainer = document.getElementById('targetDeptContainer');

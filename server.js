@@ -10,7 +10,8 @@ const cron = require('node-cron');
 const ExcelJS = require('exceljs');
 const { assertPostgresDatabaseUrl } = require('./lib/database-url');
 const {
-  formatMonthlyReportMessage,
+  formatMonthlyReportMessages,
+  getMonthlyRequestDetails,
   getUtcMonthPeriod,
   summarizeRequests
 } = require('./lib/monthly-report');
@@ -690,26 +691,7 @@ async function notifyRequestOwner(request, status) {
 }
 
 async function generateMonthlyReport(period) {
-  const requests = await prisma.request.findMany({
-    where: {
-      status: { in: ['PENDING', 'APPROVED', 'REJECTED'] },
-      createdAt: {
-        gte: period.start,
-        lt: period.end
-      }
-    },
-    select: {
-      id: true,
-      title: true,
-      category: true,
-      targetDepartment: true,
-      status: true,
-      extraFields: true,
-      createdAt: true,
-      user: { select: { name: true } }
-    },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
-  });
+  const requests = await fetchMonthlyReportRequests(period);
   const summary = summarizeRequests(requests);
   const report = await prisma.monthlyReport.upsert({
     where: { monthKey: period.monthKey },
@@ -729,7 +711,7 @@ async function generateMonthlyReport(period) {
   return { report, requests };
 }
 
-async function sendMonthlyReportToSuperAdmin(report) {
+async function sendMonthlyReportToSuperAdmin(report, requests) {
   const claimTime = new Date();
   const claimExpiredBefore = new Date(claimTime.getTime() - 10 * 60 * 1000);
   const claim = await prisma.monthlyReport.updateMany({
@@ -746,9 +728,19 @@ async function sendMonthlyReportToSuperAdmin(report) {
   if (claim.count !== 1) return false;
 
   try {
-    const result = await notifySuperAdmin(formatMonthlyReportMessage(report));
-    if (!result.ok) {
-      throw new Error(result.error || 'Monthly report Telegram delivery failed.');
+    if (!TELEGRAM_BOT_TOKEN) {
+      throw new Error('TELEGRAM_BOT_TOKEN is not configured.');
+    }
+    const chatId = await resolveSuperAdminChatId();
+    if (!chatId) {
+      throw new Error('Set SUPER_ADMIN_TELEGRAM_CHAT_ID or link a Telegram account to the SUPER_ADMIN user.');
+    }
+    const messages = formatMonthlyReportMessages(report, requests);
+    for (const [index, message] of messages.entries()) {
+      if (index > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1100));
+      }
+      await sendTelegramMessage(chatId, message, 'HTML');
     }
     await prisma.monthlyReport.update({
       where: { monthKey: report.monthKey },
@@ -766,15 +758,25 @@ async function sendMonthlyReportToSuperAdmin(report) {
 
 async function runMonthlyReportJob(now = new Date()) {
   const period = getUtcMonthPeriod(now, -1);
-  const { report } = await generateMonthlyReport(period);
+  const { report, requests } = await generateMonthlyReport(period);
   const pendingReports = await prisma.monthlyReport.findMany({
-    where: { telegramSentAt: null },
+    where: {
+      telegramSentAt: null,
+      periodEnd: { lte: period.end }
+    },
     orderBy: { monthKey: 'asc' }
   });
   const deliveryErrors = [];
   for (const pendingReport of pendingReports) {
     try {
-      await sendMonthlyReportToSuperAdmin(pendingReport);
+      const pendingPeriod = {
+        start: pendingReport.periodStart,
+        end: pendingReport.periodEnd
+      };
+      const reportRequests = pendingReport.monthKey === report.monthKey
+        ? requests
+        : await fetchMonthlyReportRequests(pendingPeriod);
+      await sendMonthlyReportToSuperAdmin(pendingReport, reportRequests);
     } catch (error) {
       deliveryErrors.push(error);
       console.error(`Monthly report ${pendingReport.monthKey} Telegram delivery failed:`, error);
@@ -785,6 +787,43 @@ async function runMonthlyReportJob(now = new Date()) {
     throw new AggregateError(deliveryErrors, 'One or more monthly report notifications could not be delivered.');
   }
   return report;
+}
+
+async function fetchMonthlyReportRequests(period) {
+  return prisma.request.findMany({
+    where: {
+      status: { in: ['PENDING', 'APPROVED', 'REJECTED'] },
+      createdAt: {
+        gte: period.start,
+        lt: period.end
+      }
+    },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      user: { select: { name: true, department: true, telegramFirstName: true } },
+      approvalSteps: {
+        select: {
+          status: true,
+          actedAt: true,
+          approvedBy: { select: { name: true } }
+        },
+        orderBy: { sequence: 'asc' }
+      },
+      auditLogs: {
+        select: {
+          action: true,
+          createdAt: true,
+          user: { select: { name: true } }
+        },
+        orderBy: { createdAt: 'asc' }
+      }
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+  });
 }
 
 function startMonthlyReportScheduler() {
@@ -2232,30 +2271,17 @@ app.get('/api/reports/monthly', requireSuperAdminAuthentication, async (req, res
 
     const requestsSheet = workbook.addWorksheet('Requests');
     requestsSheet.columns = [
-      { width: 14 },
-      { width: 40 },
-      { width: 22 },
-      { width: 24 },
-      { width: 16 },
-      { width: 22 },
-      { width: 28 },
-      { width: 28 }
+      { header: 'Request ID', key: 'requestId', width: 14 },
+      { header: 'Title', key: 'title', width: 40 },
+      { header: 'Requested By', key: 'requestedBy', width: 28 },
+      { header: 'Department', key: 'department', width: 24 },
+      { header: 'Status', key: 'status', width: 20 },
+      { header: 'Approved/Rejected By', key: 'approvedRejectedBy', width: 28 },
+      { header: 'Created Date', key: 'createdDate', width: 22, style: { numFmt: 'mmm dd, yyyy hh:mm' } },
+      { header: 'Resolved Date', key: 'resolvedDate', width: 22, style: { numFmt: 'mmm dd, yyyy hh:mm' } }
     ];
-    requestsSheet.addRow([
-      'Request ID', 'Title', 'Category', 'Target Department', 'Status',
-      'Amount (MMK)', 'Requester', 'Created At (UTC)'
-    ]);
     requests.forEach(request => {
-      requestsSheet.addRow([
-        request.id,
-        request.title,
-        request.category,
-        request.targetDepartment || 'General',
-        request.status,
-        getRequestAmount(request.extraFields),
-        request.user?.name || 'Unknown',
-        request.createdAt.toISOString()
-      ]);
+      requestsSheet.addRow(getMonthlyRequestDetails(request));
     });
     requestsSheet.getRow(1).font = { bold: true };
     requestsSheet.views = [{ state: 'frozen', ySplit: 1 }];
