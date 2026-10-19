@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const test = require('node:test');
 const {
   ADMIN_ASSIGNABLE_ROLES,
+  escapeCsvCell,
   formatRequestNotification,
   formatServerError,
   getAttachmentContentDisposition,
@@ -105,18 +106,38 @@ test('server error alerts redact secrets and split messages within Telegram limi
 test('attachment validation enforces matching supported MIME types and safe download names', () => {
   assert.equal(isAllowedAttachment({
     mimetype: 'image/jpeg',
-    originalname: 'receipt.jpg'
+    originalname: 'receipt.jpg',
+    buffer: Buffer.from([0xff, 0xd8, 0xff])
   }), true);
   assert.equal(isAllowedAttachment({
     mimetype: 'application/pdf',
-    originalname: 'receipt.exe'
+    originalname: 'receipt.exe',
+    buffer: Buffer.from('%PDF-1.7')
   }), false);
   assert.equal(isAllowedAttachment({
     mimetype: 'image/gif',
-    originalname: 'receipt.gif'
+    originalname: 'receipt.gif',
+    buffer: Buffer.from('GIF89a')
   }), false);
+  assert.equal(isAllowedAttachment({
+    mimetype: 'application/pdf',
+    originalname: 'receipt.pdf',
+    buffer: Buffer.from('not a PDF')
+  }), false);
+  assert.equal(isAllowedAttachment({
+    mimetype: 'application/pdf',
+    originalname: 'receipt.pdf',
+    buffer: Buffer.from('%PDF-1.7')
+  }), true);
   assert.equal(safeAttachmentFileName('../report.pdf'), 'report.pdf');
+  assert.equal(safeAttachmentFileName('..\\report.pdf'), 'report.pdf');
   const disposition = getAttachmentContentDisposition('စာရွက်စာတမ်း.pdf');
   assert.match(disposition, /^attachment; filename="[^"]+"; filename\*=UTF-8''/);
   assert.equal(disposition.includes('\n'), false);
+});
+
+test('CSV export escapes spreadsheet formulas and quotes values correctly', () => {
+  assert.equal(escapeCsvCell('A "quoted" title'), '"A ""quoted"" title"');
+  assert.equal(escapeCsvCell('=HYPERLINK("https://example.invalid")'), '"\'=HYPERLINK(""https://example.invalid"")"');
+  assert.equal(escapeCsvCell('ordinary text'), '"ordinary text"');
 });

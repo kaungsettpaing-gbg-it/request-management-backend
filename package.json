@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "postinstall": "prisma generate",
-    "prestart": "node -e \"require('dotenv').config(); try { require('./lib/database-url').assertPostgresDatabaseUrl(process.env.DATABASE_URL); } catch (error) { console.error(error.message); process.exit(1); }\"",
+    "prestart": "node scripts/validate-runtime-config.js",
     "db:prepare": "prisma generate && node scripts/prepare-telegram-schema.js && prisma db push --accept-data-loss",
     "start": "npm run db:prepare && node server.js",
     "build": "prisma generate",

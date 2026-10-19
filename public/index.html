@@ -34,6 +34,15 @@
             -webkit-backdrop-filter: blur(18px);
             backdrop-filter: blur(18px);
         }
+        body.admin-screen .container {
+            background:
+                radial-gradient(ellipse at 85% 0%, rgba(99,102,241,0.1), transparent 35%),
+                rgba(15,23,42,0.78);
+            border-color: rgba(255,255,255,0.12);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+            -webkit-backdrop-filter: blur(16px);
+            backdrop-filter: blur(16px);
+        }
         .container { max-width: 1100px; background: var(--card-bg); padding: 35px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); margin: 20px auto; border: 1px solid var(--border-color); }
         .header-title { color: var(--text-dark); font-size: 26px; font-weight: 700; margin-bottom: 25px; border-bottom: 2px solid var(--border-color); padding-bottom: 15px; }
         
@@ -45,6 +54,15 @@
         button:hover { background: var(--primary-hover); }
         
         .card { background: #1e293b; padding: 25px; border-radius: 12px; margin-bottom: 25px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        #userManagementCard {
+            background:
+                linear-gradient(145deg, rgba(255,255,255,0.065), transparent 45%),
+                rgba(15,23,42,0.68) !important;
+            border-color: rgba(255,255,255,0.14) !important;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.09) !important;
+            -webkit-backdrop-filter: blur(14px);
+            backdrop-filter: blur(14px);
+        }
 
         .auth-wrapper {
             position: relative;
@@ -615,6 +633,10 @@
         function updateUI() {
             if (currentUser) {
                 document.body.classList.remove('login-screen');
+                document.body.classList.toggle(
+                    'admin-screen',
+                    ['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)
+                );
                 document.getElementById('authSection').style.display = 'none';
                 document.getElementById('sessionBar').style.display = 'block';
                 document.getElementById('dashboardSection').style.display = 'block';
@@ -657,6 +679,7 @@
                 }
             } else {
                 document.body.classList.add('login-screen');
+                document.body.classList.remove('admin-screen');
                 document.getElementById('authSection').style.display = 'block';
                 document.getElementById('sessionBar').style.display = 'none';
                 document.getElementById('dashboardSection').style.display = 'none';
@@ -762,43 +785,70 @@
         function renderUserTable(users) {
             const tbody = document.getElementById('userTableBody');
             if (!tbody) return;
-            tbody.innerHTML = '';
+            tbody.replaceChildren();
 
-            users.forEach(u => {
-                const expiryVal = u.accessExpiry ? new Date(u.accessExpiry).toISOString().slice(0,10) : '';
-                tbody.innerHTML += `<tr>
-                    <td><b>${u.name}</b></td>
-                    <td>${u.email}</td>
-                    <td>
-                        <select onchange="updateUserRoleDept(${u.id}, this.value, '${u.role}')">
-                            <option value="HR" ${u.department==='HR'?'selected':''}>HR</option>
-                            <option value="Finance" ${u.department==='Finance'?'selected':''}>Finance</option>
-                            <option value="IT" ${u.department==='IT'?'selected':''}>IT</option>
-                            <option value="Sales & Marketing" ${u.department==='Sales & Marketing'?'selected':''}>Sales & Marketing</option>
-                            <option value="Warehouse" ${u.department==='Warehouse'?'selected':''}>Warehouse</option>
-                            <option value="Production" ${u.department==='Production'?'selected':''}>Production</option>
-                            <option value="Admin" ${u.department==='Admin'?'selected':''}>Admin</option>
-                        </select>
-                    </td>
-                    <td>
-                        <select onchange="updateUserRoleDept(${u.id}, '${u.department}', this.value)">
-                            <option value="STAFF" ${u.role==='STAFF'?'selected':''}>Staff</option>
-                            <option value="ASSISTANT" ${u.role==='ASSISTANT'?'selected':''}>Assistant</option>
-                            <option value="SUPERVISOR" ${u.role==='SUPERVISOR'?'selected':''}>Supervisor</option>
-                            <option value="IT_SPECIALIST" ${u.role==='IT_SPECIALIST'?'selected':''}>IT Specialist</option>
-                            <option value="MANAGER" ${u.role==='MANAGER'?'selected':''}>Manager</option>
-                            <option value="DGM" ${u.role==='DGM'?'selected':''}>DGM</option>
-                            <option value="GM" ${u.role==='GM'?'selected':''}>GM</option>
-                            <option value="ADMIN" ${u.role==='ADMIN'?'selected':''}>Admin</option>
-                        </select>
-                    </td>
-                    <td>
-                        <input type="date" value="${expiryVal}" onchange="setTemporaryAccess(${u.id}, this.value)" style="margin:0; padding:6px; font-size:12px;">
-                    </td>
-                    <td>
-                        <button type="button" onclick="deleteUser(${u.id})" style="background: var(--danger); padding: 6px 12px; font-size: 12px;">Delete</button>
-                    </td>
-                </tr>`;
+            const departments = ['HR', 'Finance', 'IT', 'Sales & Marketing', 'Warehouse', 'Production', 'Admin'];
+            const roles = [
+                ['STAFF', 'Staff'], ['ASSISTANT', 'Assistant'], ['SUPERVISOR', 'Supervisor'],
+                ['IT_SPECIALIST', 'IT Specialist'], ['MANAGER', 'Manager'], ['DGM', 'DGM'],
+                ['GM', 'GM'], ['ADMIN', 'Admin']
+            ];
+
+            users.forEach(user => {
+                const row = tbody.insertRow();
+                const nameCell = row.insertCell();
+                const name = document.createElement('b');
+                name.textContent = user.name || 'Unnamed user';
+                nameCell.appendChild(name);
+                row.insertCell().textContent = user.email || '';
+
+                const departmentCell = row.insertCell();
+                const departmentSelect = document.createElement('select');
+                departments.forEach(department => {
+                    const option = document.createElement('option');
+                    option.value = department;
+                    option.textContent = department;
+                    option.selected = user.department === department;
+                    departmentSelect.appendChild(option);
+                });
+                departmentCell.appendChild(departmentSelect);
+
+                const roleCell = row.insertCell();
+                const roleSelect = document.createElement('select');
+                roles.forEach(([value, label]) => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = label;
+                    option.selected = user.role === value;
+                    roleSelect.appendChild(option);
+                });
+                roleCell.appendChild(roleSelect);
+
+                const updateProfile = () => updateUserRoleDept(
+                    user.id,
+                    departmentSelect.value,
+                    roleSelect.value
+                );
+                departmentSelect.addEventListener('change', updateProfile);
+                roleSelect.addEventListener('change', updateProfile);
+
+                const expiryCell = row.insertCell();
+                const expiryInput = document.createElement('input');
+                expiryInput.type = 'date';
+                expiryInput.style.cssText = 'margin:0; padding:6px; font-size:12px;';
+                if (user.accessExpiry && Number.isFinite(Date.parse(user.accessExpiry))) {
+                    expiryInput.value = new Date(user.accessExpiry).toISOString().slice(0, 10);
+                }
+                expiryInput.addEventListener('change', () => setTemporaryAccess(user.id, expiryInput.value));
+                expiryCell.appendChild(expiryInput);
+
+                const actionsCell = row.insertCell();
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.textContent = 'Delete';
+                deleteButton.style.cssText = 'background: var(--danger); padding: 6px 12px; font-size: 12px;';
+                deleteButton.addEventListener('click', () => deleteUser(user.id));
+                actionsCell.appendChild(deleteButton);
             });
         }
 
@@ -907,7 +957,7 @@
             listDiv.innerHTML = '';
             
             if (!Array.isArray(requests) || requests.length === 0) {
-                listDiv.innerHTML = `<p style="color: var(--text-muted); padding: 25px; text-align: center; background: #0f172a; border-radius: 8px; border: 1px solid var(--border-color);">No <b>${currentRequestTab}</b> requests found.</p>`;
+                listDiv.innerHTML = `<p style="color: var(--text-muted); padding: 25px; text-align: center; background: #0f172a; border-radius: 8px; border: 1px solid var(--border-color);">No <b>${escapeHtml(currentRequestTab)}</b> requests found.</p>`;
                 return;
             }
 
@@ -915,6 +965,12 @@
                 const userName = req.user ? req.user.name : 'Unknown';
                 const userDept = req.user ? req.user.department : 'N/A';
                 const userRole = req.user ? req.user.role : 'N/A';
+                const requestId = Number.isSafeInteger(Number(req.id)) && Number(req.id) > 0
+                    ? Number(req.id)
+                    : null;
+                const status = ['PENDING', 'APPROVED', 'REJECTED'].includes(req.status)
+                    ? req.status
+                    : 'PENDING';
                 let extraStr = '';
                 try {
                     const extra = req.extraFields ? JSON.parse(req.extraFields) : {};
@@ -931,10 +987,11 @@
                         '" onclick="downloadRequestAttachment(this); return false;" style="color: #818cf8;">' +
                         escapeHtml(req.attachmentFile.fileName) + '</a></small>';
                 } else if (req.attachment) {
-                    const legacyPath = '/' + String(req.attachment).replace(/^[\\/]+/, '');
-                    fileLink = '<br><small>📎 <b>Attachment:</b> <a href="' +
-                        escapeHtml(encodeURI(legacyPath)) +
-                        '" target="_blank" rel="noopener noreferrer" style="color: #818cf8;">Download File</a></small>';
+                    const legacyFileName = String(req.attachment).replace(/\\/g, '/').split('/').pop();
+                    fileLink = '<br><small>📎 <b>Legacy attachment:</b> <a href="#" data-legacy-file="' +
+                        escapeHtml(legacyFileName) +
+                        '" onclick="downloadLegacyRequestAttachment(this); return false;" style="color: #818cf8;">' +
+                        escapeHtml(legacyFileName) + '</a></small>';
                 }
                 const formattedDate = req.createdAt ? new Date(req.createdAt).toLocaleString() : 'N/A';
 
@@ -943,8 +1000,10 @@
                     auditHtml = '<div class="audit-history-box"><strong>📜 Audit Trail Logs:</strong>';
                     req.auditLogs.forEach(log => {
                         const logTime = new Date(log.createdAt).toLocaleString();
-                        const actor = log.user ? `${log.user.name} (${log.user.role})` : 'System';
-                        auditHtml += `<div class="audit-entry">⏱ <b>${log.action}</b> by ${actor} on ${logTime} - <i>${log.remarks || 'No remarks'}</i></div>`;
+                        const actor = log.user
+                            ? `${escapeHtml(log.user.name)} (${escapeHtml(log.user.role)})`
+                            : 'System';
+                        auditHtml += `<div class="audit-entry">⏱ <b>${escapeHtml(log.action)}</b> by ${actor} on ${escapeHtml(logTime)} - <i>${escapeHtml(log.remarks || 'No remarks')}</i></div>`;
                     });
                     auditHtml += '</div>';
                 }
@@ -961,23 +1020,23 @@
                                 String(currentUser.department || '').trim().toLowerCase());
 
                 let actionButtons = '';
-                if (canAction) {
+                if (canAction && requestId !== null) {
                     actionButtons = '<div>' +
-                        '<button type="button" class="btn-approve" onclick="updateStatus(' + req.id + ', \'APPROVED\')">Approve</button>' +
-                        '<button type="button" class="btn-reject" onclick="updateStatus(' + req.id + ', \'REJECTED\')">Reject</button>' +
+                        '<button type="button" class="btn-approve" onclick="updateStatus(' + requestId + ', \'APPROVED\')">Approve</button>' +
+                        '<button type="button" class="btn-reject" onclick="updateStatus(' + requestId + ', \'REJECTED\')">Reject</button>' +
                     '</div>';
                 }
 
                 listDiv.innerHTML += '<div class="request-item">' +
                     '<div class="request-header">' +
                         '<div>' +
-                            '<strong>' + req.title + '</strong> [<b>' + req.category + '</b>] <span class="status-' + req.status + '">[' + req.status + ']</span> ' +
-                            '<span class="stage-badge">Workflow Stage: ' + req.approvalStage + '</span><br>' +
-                            '<span class="timestamp">📅 Submitted: ' + formattedDate + ' | 🎯 Target: <b>' + (req.targetDepartment || 'General') + '</b></span><br>' +
-                            '<small style="color: #cbd5e1;">' + (req.description || 'No description') + '</small><br>' +
+                            '<strong>' + escapeHtml(req.title) + '</strong> [<b>' + escapeHtml(req.category) + '</b>] <span class="status-' + status + '">[' + status + ']</span> ' +
+                            '<span class="stage-badge">Workflow Stage: ' + escapeHtml(req.approvalStage) + '</span><br>' +
+                            '<span class="timestamp">📅 Submitted: ' + escapeHtml(formattedDate) + ' | 🎯 Target: <b>' + escapeHtml(req.targetDepartment || 'General') + '</b></span><br>' +
+                            '<small style="color: #cbd5e1;">' + escapeHtml(req.description || 'No description') + '</small><br>' +
                             (extraStr ? '<small style="color:#818cf8;">' + extraStr + '</small><br>' : '') +
                             fileLink + '<br>' +
-                            '<em>Submitted By: ' + userName + ' (' + userDept + ' - ' + userRole + ')</em>' +
+                            '<em>Submitted By: ' + escapeHtml(userName) + ' (' + escapeHtml(userDept) + ' - ' + escapeHtml(userRole) + ')</em>' +
                         '</div>' +
                         actionButtons +
                     '</div>' +
@@ -987,8 +1046,22 @@
         }
 
         async function downloadRequestAttachment(link) {
+            await downloadAttachment(
+                '/api/files/' + encodeURIComponent(link.dataset.fileId),
+                link.dataset.fileName || 'attachment'
+            );
+        }
+
+        async function downloadLegacyRequestAttachment(link) {
+            await downloadAttachment(
+                '/api/legacy-files/' + encodeURIComponent(link.dataset.legacyFile),
+                link.dataset.legacyFile || 'attachment'
+            );
+        }
+
+        async function downloadAttachment(url, fileName) {
             try {
-                const response = await fetch('/api/files/' + encodeURIComponent(link.dataset.fileId), {
+                const response = await fetch(url, {
                     headers: { Authorization: 'Bearer ' + sessionToken }
                 });
                 if (!response.ok) {
@@ -998,7 +1071,7 @@
                 const objectUrl = URL.createObjectURL(await response.blob());
                 const downloadLink = document.createElement('a');
                 downloadLink.href = objectUrl;
-                downloadLink.download = link.dataset.fileName || 'attachment';
+                downloadLink.download = fileName || 'attachment';
                 document.body.appendChild(downloadLink);
                 downloadLink.click();
                 downloadLink.remove();

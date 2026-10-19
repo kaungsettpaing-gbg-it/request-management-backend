@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs/promises');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -20,6 +21,9 @@ const jwtSecret = hasStrongJwtSecret
   ? process.env.JWT_SECRET
   : crypto.randomBytes(48).toString('base64');
 if (!hasStrongJwtSecret) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be configured with at least 32 bytes in production.');
+  }
   console.warn('A persistent JWT_SECRET of at least 32 bytes is not configured. Approval sessions will expire when the server restarts.');
 }
 
@@ -40,7 +44,6 @@ app.get('/api/config', (req, res) => {
   return res.json({ telegramBotUsername: TELEGRAM_BOT_USERNAME });
 });
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const MAX_ATTACHMENT_SIZE_BYTES = 20 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_TYPES = new Map([
@@ -71,11 +74,40 @@ function uploadRequestAttachment(req, res, next) {
 function isAllowedAttachment(file) {
   if (!file) return true;
   const extensions = ALLOWED_ATTACHMENT_TYPES.get(file.mimetype);
-  return Boolean(extensions && extensions.has(path.extname(file.originalname).toLowerCase()));
+  return Boolean(
+    extensions &&
+    extensions.has(path.extname(file.originalname).toLowerCase()) &&
+    hasValidAttachmentSignature(file)
+  );
+}
+
+function hasValidAttachmentSignature(file) {
+  const buffer = file.buffer;
+  if (!Buffer.isBuffer(buffer)) return false;
+  switch (file.mimetype) {
+    case 'image/jpeg':
+      return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    case 'image/png':
+      return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    case 'image/webp':
+      return buffer.length >= 12 &&
+        buffer.toString('ascii', 0, 4) === 'RIFF' &&
+        buffer.toString('ascii', 8, 12) === 'WEBP';
+    case 'application/pdf':
+      return buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+    case 'application/msword':
+      return buffer.length >= 8 &&
+        buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+    case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+      return buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b &&
+        [0x03, 0x05, 0x07].includes(buffer[2]) && [0x04, 0x06, 0x08].includes(buffer[3]);
+    default:
+      return false;
+  }
 }
 
 function safeAttachmentFileName(fileName) {
-  return path.basename(String(fileName || 'attachment'))
+  return path.basename(String(fileName || 'attachment').replace(/\\/g, '/'))
     .replace(/[\r\n"\\]/g, '_')
     .slice(0, 180) || 'attachment';
 }
@@ -624,24 +656,12 @@ app.post('/api/login', async (req, res) => {
         ]
       }
     });
-    const user = matchingTelegram || (await prisma.user.findMany({
-      select: { id: true, name: true, email: true, telegramId: true, telegramUsername: true, password: true, role: true, department: true },
-      where: {
-        OR: [
-          { email: { not: null } },
-          { telegramId: { not: null } },
-          { telegramUsername: { not: null } },
-          { name: { not: null } }
-        ]
-      }
-    })).find(candidate =>
-      candidate.email?.trim().toLowerCase() === cleanKey ||
-      candidate.telegramUsername?.trim().replace(/^@+/, '').toLowerCase() === cleanKey ||
-      candidate.name?.trim().toLowerCase() === cleanKey
-    );
+    const user = matchingTelegram || await prisma.user.findFirst({
+      where: { name: { equals: loginKey.trim(), mode: 'insensitive' } }
+    });
 
     if (!user) {
-      return res.status(401).json({ error: 'User not found.' });
+      return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
     const hasBcryptPassword = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(user.password);
@@ -649,7 +669,13 @@ app.post('/api/login', async (req, res) => {
       ? await bcrypt.compare(password, user.password)
       : password === user.password;
     if (!passwordMatches) {
-      return res.status(401).json({ error: 'Incorrect password.' });
+      return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+    if (!hasBcryptPassword) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { password: await bcrypt.hash(password, 10) }
+      });
     }
 
     res.json({
@@ -667,7 +693,7 @@ app.post('/api/login', async (req, res) => {
   } catch (error) {
     console.error("Login Error:", error);
     res.locals.systemError = error;
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Unable to sign in.' });
   }
 });
 
@@ -815,26 +841,60 @@ app.post('/api/auth/telegram/link', requireApprovalAuthentication, async (req, r
 // Verify Telegram OTP
 app.post('/api/verify-mfa', async (req, res) => {
   try {
-    const { userId, code } = req.body;
-    const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
+    const { userId, email } = req.body || {};
+    const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+    const numericUserId = Number(userId);
+    const where = Number.isSafeInteger(numericUserId) && numericUserId > 0
+      ? { id: numericUserId }
+      : typeof email === 'string' && email.trim()
+        ? { email: email.trim().toLowerCase() }
+        : null;
 
-    if (!user) {
-      return res.status(400).json({ error: "User not found." });
+    if (!where || !code) {
+      return res.status(400).json({ error: 'A valid account and verification code are required.' });
     }
 
-    if (!user.otp || user.otp !== code || (user.otpExpiry && new Date() > new Date(user.otpExpiry))) {
-      return res.status(400).json({ error: "Invalid or expired OTP code." });
+    const user = await prisma.user.findUnique({
+      where,
+      select: { id: true, otp: true, otpExpiry: true }
+    });
+    const now = new Date();
+    if (!user || !user.otp || user.otp !== code || !user.otpExpiry || user.otpExpiry <= now) {
+      return res.status(400).json({ error: 'Invalid or expired verification code.' });
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
+    const consumed = await prisma.user.updateMany({
+      where: { id: user.id, otp: code, otpExpiry: { gt: now } },
       data: { otp: null, otpExpiry: null }
     });
+    if (consumed.count !== 1) {
+      return res.status(400).json({ error: 'Invalid or expired verification code.' });
+    }
 
-    res.json({ message: "Authentication successful", user });
+    const authenticatedUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        telegramId: true,
+        telegramUsername: true,
+        role: true,
+        department: true
+      }
+    });
+    if (!authenticatedUser) {
+      return res.status(401).json({ error: 'The account for this session no longer exists.' });
+    }
+
+    res.json({
+      message: 'Authentication successful',
+      token: jwt.sign({ sub: String(authenticatedUser.id) }, jwtSecret, { expiresIn: '8h' }),
+      user: authenticatedUser
+    });
   } catch (error) {
     res.locals.systemError = error;
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Unable to verify authentication.' });
   }
 });
 
@@ -965,7 +1025,7 @@ app.get('/api/users', requireAdminAuthentication, async (req, res) => {
     } catch (err) {
         console.error('Get Users Error:', err);
         res.locals.systemError = err;
-        res.status(500).json({ error: 'Failed to fetch users: ' + err.message });
+        res.status(500).json({ error: 'Unable to fetch users.' });
     }
 });
 
@@ -1010,7 +1070,7 @@ app.patch('/api/users/:id', requireAdminAuthentication, async (req, res) => {
     res.json({ message: "User updated successfully", user: updatedUser });
   } catch (error) {
     res.locals.systemError = error;
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Unable to update user.' });
   }
 });
 
@@ -1140,7 +1200,7 @@ app.post('/api/requests', requireCompletedProfile, uploadRequestAttachment, asyn
   } catch (error) {
     console.error('Create Request Error:', error);
     res.locals.systemError = error;
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Unable to create request.' });
   }
 });
 
@@ -1244,7 +1304,7 @@ app.get('/api/requests', requireCompletedProfile, async (req, res) => {
   } catch (error) {
     console.error('Get Requests Error:', error);
     res.locals.systemError = error;
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Unable to fetch requests.' });
   }
 });
 
@@ -1341,6 +1401,63 @@ function canUserSeeRequest(request, actor) {
     String(actor.department || '').trim().toLowerCase() ===
       String(currentStep.department || '').trim().toLowerCase();
 }
+
+app.get('/api/legacy-files/:fileName', requireCompletedProfile, async (req, res) => {
+  const fileName = path.basename(String(req.params.fileName || '').replace(/\\/g, '/'));
+  if (!fileName || fileName === '.' || fileName === '..') {
+    return res.status(400).json({ error: 'A valid attachment name is required.' });
+  }
+
+  try {
+    const legacyPaths = [`uploads/${fileName}`, `./uploads/${fileName}`];
+    const request = await prisma.request.findFirst({
+      where: { attachment: { in: legacyPaths } },
+      include: { approvalSteps: true }
+    });
+    if (!request) {
+      return res.status(404).json({ error: 'Legacy attachment not found.' });
+    }
+
+    const actor = await prisma.user.findUnique({
+      where: { id: req.approverId },
+      select: { id: true, role: true, department: true }
+    });
+    if (!actor || !canUserSeeRequest(request, actor)) {
+      return res.status(403).json({ error: 'You are not allowed to access this attachment.' });
+    }
+
+    const uploadDirectory = await fs.realpath(path.resolve(__dirname, 'uploads'));
+    const filePath = await fs.realpath(path.join(uploadDirectory, fileName));
+    const relativePath = path.relative(uploadDirectory, filePath);
+    if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+      return res.status(400).json({ error: 'Invalid attachment path.' });
+    }
+    const stats = await fs.stat(filePath);
+    if (!stats.isFile() || stats.size > MAX_ATTACHMENT_SIZE_BYTES) {
+      return res.status(404).json({ error: 'Legacy attachment is unavailable.' });
+    }
+
+    const extension = path.extname(fileName).toLowerCase();
+    const mimeType = [...ALLOWED_ATTACHMENT_TYPES].find(([, extensions]) => extensions.has(extension))?.[0] ||
+      'application/octet-stream';
+    const content = await fs.readFile(filePath);
+    res.set({
+      'Content-Type': mimeType,
+      'Content-Length': String(content.length),
+      'Content-Disposition': getAttachmentContentDisposition(fileName),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    return res.send(content);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Legacy attachment is unavailable.' });
+    }
+    console.error('Unable to retrieve legacy attachment:', error.message);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to retrieve the attachment.' });
+  }
+});
 
 app.get('/api/files/:fileId', requireCompletedProfile, async (req, res) => {
   const fileId = String(req.params.fileId || '');
@@ -1607,6 +1724,12 @@ app.patch('/api/requests/:id/approval', requireCompletedProfile, handleRequestAp
 
 app.patch('/api/requests/:id/status', requireCompletedProfile, handleRequestApproval);
 
+function escapeCsvCell(value) {
+  let text = String(value ?? '');
+  if (/^[\s]*[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
 app.get('/api/export/requests', requireCompletedProfile, async (req, res) => {
   try {
     const actor = await prisma.user.findUnique({
@@ -1622,17 +1745,26 @@ app.get('/api/export/requests', requireCompletedProfile, async (req, res) => {
       },
       orderBy: { createdAt: 'desc' }
     });
-    let csv = 'ID,Title,Category,Target Dept,Stage,Status,Description,Date\n';
-    requests.filter(request => canUserSeeRequest(request, actor)).forEach(r => {
-      const desc = (r.description || '').replace(/"/g, '""');
-      csv += `${r.id},"${r.title}","${r.category}","${r.targetDepartment || 'General'}","${r.approvalStage}","${r.status}","${desc}","${r.createdAt}"\n`;
-    });
+    const rows = [
+      ['ID', 'Title', 'Category', 'Target Dept', 'Stage', 'Status', 'Description', 'Date'],
+      ...requests.filter(request => canUserSeeRequest(request, actor)).map(request => [
+        request.id,
+        request.title,
+        request.category,
+        request.targetDepartment || 'General',
+        request.approvalStage,
+        request.status,
+        request.description || '',
+        request.createdAt.toISOString()
+      ])
+    ];
+    const csv = rows.map(row => row.map(escapeCsvCell).join(',')).join('\r\n');
     res.header('Content-Type', 'text/csv');
     res.attachment('security_audit_request_report.csv');
     res.send(csv);
   } catch (error) {
     res.locals.systemError = error;
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Unable to export requests.' });
   }
 });
 
@@ -1652,39 +1784,29 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-function isDatabaseSchemaUnavailable(error) {
-  return error?.code === 'P2021' ||
-    /no such table|table .* does not exist|relation .* does not exist/i.test(error?.message || '');
-}
-
-async function runStartupInitializer(name, initialize) {
-  try {
-    await initialize();
-  } catch (error) {
-    if (isDatabaseSchemaUnavailable(error)) {
-      console.warn(`Database tables are not initialized; skipping ${name} for now. Run Prisma db push or migrations.`, error.message);
-      return;
-    }
-    console.error(`Error during ${name}:`, error);
-    void notifySuperAdmin(formatServerError(error, `Startup initializer: ${name}`));
-  }
-}
-
 async function start() {
   assertPostgresDatabaseUrl(process.env.DATABASE_URL);
+  if (!hasStrongJwtSecret) {
+    throw new Error('JWT_SECRET must be configured with at least 32 bytes before the server can start.');
+  }
 
-  return app.listen(PORT, '0.0.0.0', async () => {
+  await initializeApprovalChains();
+  await initSuperAdmin();
+
+  return new Promise((resolve, reject) => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server is running on port ${PORT}`);
-
-    await runStartupInitializer('approval chain initialization', initializeApprovalChains);
-    await runStartupInitializer('Super Admin initialization', initSuperAdmin);
+    resolve(server);
+    });
+    server.once('error', reject);
   });
 }
 
 if (require.main === module) {
-  start().catch(error => {
+  start().catch(async error => {
     console.error('Unable to prepare the database; server was not started:', error);
-    void notifySuperAdmin(formatServerError(error, 'Server startup failure'));
+    await notifySuperAdmin(formatServerError(error, 'Server startup failure'));
+    await prisma.$disconnect();
     process.exitCode = 1;
   });
 }
@@ -1698,6 +1820,7 @@ module.exports = {
   verifyTelegramLogin,
   getRequestAmount,
   formatRequestNotification,
+  escapeCsvCell,
   formatServerError,
   redactSensitiveErrorText,
   splitTelegramMessage,
