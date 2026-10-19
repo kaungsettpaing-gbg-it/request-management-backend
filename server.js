@@ -656,8 +656,16 @@ async function notifyRequestOwner(request, status) {
 
 // Auto Init Super Admin
 async function initSuperAdmin() {
-    const superAdminEmail = 'superadmin@company.com';
-    const superAdminTelegram = 'okeydokey2';
+    const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'superadmin@company.com')
+      .trim()
+      .toLowerCase();
+    const superAdminTelegram = (
+      process.env.SUPER_ADMIN_TELEGRAM_USERNAME || 'okeydokey2'
+    ).replace(/^@/, '').trim().toLowerCase();
+
+    if (SUPER_ADMIN_TELEGRAM_CHAT_ID && !/^\d+$/.test(SUPER_ADMIN_TELEGRAM_CHAT_ID)) {
+        throw new Error('SUPER_ADMIN_TELEGRAM_CHAT_ID must be a numeric Telegram chat ID.');
+    }
 
     const superAdmin = await prisma.user.findFirst({
         where: { role: 'SUPER_ADMIN' }
@@ -668,17 +676,47 @@ async function initSuperAdmin() {
         return;
     }
 
-    const adminExists = await prisma.user.findFirst({
+    const configuredUsers = await prisma.user.findMany({
         where: {
             OR: [
                 { email: superAdminEmail },
-                { telegramUsername: superAdminTelegram }
+                ...(superAdminTelegram ? [{ telegramUsername: superAdminTelegram }] : []),
+                ...(SUPER_ADMIN_TELEGRAM_CHAT_ID
+                  ? [{ telegramId: SUPER_ADMIN_TELEGRAM_CHAT_ID }]
+                  : [])
             ]
-        }
+        },
+        select: { id: true, email: true, role: true, telegramId: true, telegramUsername: true }
     });
 
-    if (adminExists) {
-        console.log(`Super Admin is configured for ${adminExists.email}.`);
+    if (configuredUsers.length > 1) {
+        throw new Error('Configured Super Admin identifiers resolve to different user accounts.');
+    }
+
+    const configuredUser = configuredUsers[0];
+    if (configuredUser) {
+        if (SUPER_ADMIN_TELEGRAM_CHAT_ID) {
+            const existingBinding = await prisma.user.findUnique({
+                where: { telegramId: SUPER_ADMIN_TELEGRAM_CHAT_ID },
+                select: { id: true }
+            });
+            if (existingBinding && existingBinding.id !== configuredUser.id) {
+                throw new Error('The configured Super Admin Telegram ID is already linked to another user.');
+            }
+        }
+
+        await prisma.user.update({
+            where: { id: configuredUser.id },
+            data: {
+                role: 'SUPER_ADMIN',
+                ...(SUPER_ADMIN_TELEGRAM_CHAT_ID && { telegramId: SUPER_ADMIN_TELEGRAM_CHAT_ID }),
+                ...(!configuredUser.telegramUsername && superAdminTelegram && {
+                    telegramUsername: superAdminTelegram
+                }),
+                ...(!configuredUser.department && { department: 'Executive Management' })
+            }
+        });
+        console.log(`Super Admin access restored for ${configuredUser.email}.`);
         return;
     }
 
@@ -689,9 +727,6 @@ async function initSuperAdmin() {
     }
 
     if (SUPER_ADMIN_TELEGRAM_CHAT_ID) {
-        if (!/^\d+$/.test(SUPER_ADMIN_TELEGRAM_CHAT_ID)) {
-            throw new Error('SUPER_ADMIN_TELEGRAM_CHAT_ID must be a numeric Telegram chat ID.');
-        }
         const existingBinding = await prisma.user.findUnique({
             where: { telegramId: SUPER_ADMIN_TELEGRAM_CHAT_ID },
             select: { id: true }
@@ -1267,9 +1302,7 @@ app.post('/api/admin/telegram/test', requireAdminAuthentication, async (req, res
 app.get('/api/users', requireAdminAuthentication, async (req, res) => {
     try {
         const users = await prisma.user.findMany({
-            where: {
-                role: { not: 'SUPER_ADMIN' }
-            },
+            where: req.adminRole === 'SUPER_ADMIN' ? {} : { role: { not: 'SUPER_ADMIN' } },
             select: {
                 id: true,
                 name: true,
@@ -1296,10 +1329,13 @@ app.patch('/api/users/:id', requireAdminAuthentication, async (req, res) => {
     const { id } = req.params;
     const { role, department, telegramId, telegramUsername } = req.body;
 
-    if (role === 'SUPER_ADMIN') {
-      return res.status(403).json({ error: 'Super Admin role is reserved and hidden from normal user management.' });
+    if (role === 'SUPER_ADMIN' && req.adminRole !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Only a Super Admin can assign the Super Admin role.' });
     }
-    if (role != null && !ADMIN_ASSIGNABLE_ROLES.includes(role)) {
+    const assignableRoles = req.adminRole === 'SUPER_ADMIN'
+      ? [...ADMIN_ASSIGNABLE_ROLES, 'SUPER_ADMIN']
+      : ADMIN_ASSIGNABLE_ROLES;
+    if (role != null && !assignableRoles.includes(role)) {
       return res.status(400).json({ error: 'Invalid role.' });
     }
 
@@ -1313,6 +1349,13 @@ app.patch('/api/users/:id', requireAdminAuthentication, async (req, res) => {
     });
     if (!previousUser) {
       return res.status(404).json({ error: 'User not found.' });
+    }
+    if (previousUser.role === 'SUPER_ADMIN' && req.adminRole !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Only a Super Admin can manage Super Admin accounts.' });
+    }
+    if (userId === req.approverId && previousUser.role === 'SUPER_ADMIN' &&
+        role != null && role !== 'SUPER_ADMIN') {
+      return res.status(400).json({ error: 'You cannot remove your own Super Admin access.' });
     }
     const updatedUser = await prisma.user.update({
       where: { id: userId },
@@ -1349,6 +1392,9 @@ app.delete('/api/users/:id', requireAdminAuthentication, async (req, res) => {
     });
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
+    }
+    if (userId === req.approverId) {
+      return res.status(400).json({ error: 'You cannot delete your own account.' });
     }
     if (user.role === 'SUPER_ADMIN') {
       return res.status(403).json({ error: 'The Super Admin account cannot be deleted.' });
@@ -1838,6 +1884,7 @@ async function requireAdminAuthentication(req, res, next) {
       if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
         return res.status(403).json({ error: 'Administrator access is required.' });
       }
+      req.adminRole = user.role;
       return next();
     } catch (error) {
       console.error('Administrator Access Check Error:', error);

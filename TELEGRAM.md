@@ -22,3 +22,19 @@ token is stored as a SHA-256 hash, and Telegram `/start` links the private chat
 that redeems it. Signed-in users can generate a fresh link from the account
 panel. The admin Telegram status and test alert are available to Admin and
 Super Admin roles.
+
+## Super Admin access recovery
+
+`SUPER_ADMIN_EMAIL` identifies the account that startup will promote to
+`SUPER_ADMIN` when no Super Admin account exists. It defaults to
+`superadmin@company.com`. If the account already exists, startup restores the
+role; it does not change the account password. `SUPER_ADMIN_TELEGRAM_USERNAME`
+can be set to the matching Telegram username (without `@`) when needed.
+
+Passwords are stored as hashes and cannot be retrieved. To reset one, deploy
+the role-restoration code first, then run `npm run superadmin:reset-password`
+once in an environment with the production `DATABASE_URL` and set both
+`SUPER_ADMIN_RESET_CONFIRM_EMAIL` (the exact target email) and
+`SUPER_ADMIN_RESET_PASSWORD` (a new password of at least 12 characters).
+Unset those two variables immediately afterward. Do not add the reset command
+to a build, start, or recurring deployment script.

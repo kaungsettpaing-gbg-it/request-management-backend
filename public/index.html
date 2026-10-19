@@ -1016,6 +1016,9 @@
                 ['IT_SPECIALIST', 'IT Specialist'], ['MANAGER', 'Manager'], ['DGM', 'DGM'],
                 ['GM', 'GM'], ['ADMIN', 'Admin']
             ];
+            if (currentUser.role === 'SUPER_ADMIN') {
+                roles.push(['SUPER_ADMIN', 'Super Admin']);
+            }
 
             users.forEach(user => {
                 const row = tbody.insertRow();
@@ -1045,6 +1048,10 @@
                     option.selected = user.role === value;
                     roleSelect.appendChild(option);
                 });
+                if (user.id === currentUser.id && user.role === 'SUPER_ADMIN') {
+                    roleSelect.disabled = true;
+                    roleSelect.title = 'You cannot remove your own Super Admin access.';
+                }
                 roleCell.appendChild(roleSelect);
 
                 const updateProfile = () => updateUserRoleDept(
@@ -1066,12 +1073,14 @@
                 expiryCell.appendChild(expiryInput);
 
                 const actionsCell = row.insertCell();
-                const deleteButton = document.createElement('button');
-                deleteButton.type = 'button';
-                deleteButton.textContent = 'Delete';
-                deleteButton.style.cssText = 'background: var(--danger); padding: 6px 12px; font-size: 12px;';
-                deleteButton.addEventListener('click', () => deleteUser(user.id));
-                actionsCell.appendChild(deleteButton);
+                if (user.role !== 'SUPER_ADMIN') {
+                    const deleteButton = document.createElement('button');
+                    deleteButton.type = 'button';
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.style.cssText = 'background: var(--danger); padding: 6px 12px; font-size: 12px;';
+                    deleteButton.addEventListener('click', () => deleteUser(user.id));
+                    actionsCell.appendChild(deleteButton);
+                }
             });
         }
 
@@ -1085,10 +1094,10 @@
                     },
                     body: JSON.stringify({ department: dept, role: role })
                 });
-                if (res.ok) {
-                    alert("User Role & Department Updated!");
-                    loadUsers();
-                }
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Unable to update user.');
+                alert("User Role & Department Updated!");
+                loadUsers();
             } catch(err) {
                 alert("Error: " + err.message);
             }

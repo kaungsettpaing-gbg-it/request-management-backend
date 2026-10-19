@@ -9,6 +9,7 @@
     "db:prepare": "prisma generate && node scripts/prepare-telegram-schema.js && prisma db push --accept-data-loss",
     "start": "node server.js",
     "build": "prisma generate",
+    "superadmin:reset-password": "node scripts/reset-super-admin-password.js",
     "test": "node --test test/approval-workflow.test.js test/telegram-auth.test.js"
   },
   "keywords": [],
