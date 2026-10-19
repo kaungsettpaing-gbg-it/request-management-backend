@@ -43,54 +43,151 @@ const upload = multer({ storage });
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPER_ADMIN_TELE_USERNAME = 'okeydokey2';
 
-// Send Telegram Message
 async function sendTelegramOTP(chatId, otpCode) {
   try {
-    if (!TELEGRAM_BOT_TOKEN) {
-      throw new Error('TELEGRAM_BOT_TOKEN is not configured.');
-    }
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: `🔐 *Security Verification*\n\nYour Login 2FA Code is: \`${otpCode}\`\nThis code expires in 5 minutes.`,
-        parse_mode: 'Markdown'
-      })
-    });
-    const data = await response.json();
-    return data.ok;
+    await sendTelegramMessage(chatId, `🔐 *Security Verification*\n\nYour Login 2FA Code is: \`${otpCode}\`\nThis code expires in 5 minutes.`, 'Markdown');
+    return true;
   } catch (error) {
     console.error("Telegram API Error:", error.message);
     return false;
   }
 }
 
-// Get Chat ID by Telegram Username
-async function getChatIdFromUsername(username) {
-  if (!username) return null;
-  try {
-    if (!TELEGRAM_BOT_TOKEN) {
-      throw new Error('TELEGRAM_BOT_TOKEN is not configured.');
-    }
-    const cleanUsername = String(username).replace(/^@+/, '').trim().toLowerCase();
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`;
-    const response = await fetch(url);
-    const data = await response.json();
-
-    if (data.ok && data.result) {
-      for (const update of data.result.reverse()) {
-        const msg = update.message || update.edited_message;
-        if (msg && msg.from && msg.from.username && msg.from.username.toLowerCase() === cleanUsername) {
-          return msg.chat.id.toString();
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error fetching Telegram Chat ID:", err.message);
+async function sendTelegramMessage(chatId, text, parseMode) {
+  if (!TELEGRAM_BOT_TOKEN) {
+    throw new Error('TELEGRAM_BOT_TOKEN is not configured.');
   }
-  return null;
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(10000),
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      ...(parseMode ? { parse_mode: parseMode } : {})
+    })
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) {
+    throw new Error(`Telegram sendMessage failed: ${data.description || response.statusText}`);
+  }
+}
+
+function verifyTelegramLogin(payload, botToken, nowSeconds = Math.floor(Date.now() / 1000)) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
+      typeof botToken !== 'string' || !botToken) {
+    return null;
+  }
+  const hash = payload.hash;
+  const authDate = Number(payload.auth_date);
+  const telegramId = String(payload.id ?? '');
+  const firstName = payload.first_name;
+  if (typeof hash !== 'string' || !/^[a-f0-9]{64}$/i.test(hash) ||
+      !Number.isSafeInteger(authDate) || authDate > nowSeconds + 30 ||
+      nowSeconds - authDate > 86400 ||
+      !/^[1-9]\d{0,15}$/.test(telegramId) ||
+      !Number.isSafeInteger(Number(telegramId)) ||
+      typeof firstName !== 'string' || !firstName.trim() || firstName.length > 256 ||
+      (payload.username != null &&
+        (typeof payload.username !== 'string' || !/^[A-Za-z0-9_]{5,32}$/.test(payload.username)))) {
+    return null;
+  }
+
+  const checkString = Object.entries(payload)
+    .filter(([key, value]) => key !== 'hash' && (typeof value === 'string' || typeof value === 'number'))
+    .map(([key, value]) => `${key}=${value}`)
+    .sort()
+    .join('\n');
+  const secretKey = crypto.createHash('sha256').update(botToken).digest();
+  const expectedHash = crypto.createHmac('sha256', secretKey).update(checkString).digest();
+  const receivedHash = Buffer.from(hash, 'hex');
+  if (receivedHash.length !== expectedHash.length || !crypto.timingSafeEqual(receivedHash, expectedHash)) {
+    return null;
+  }
+
+  return {
+    id: telegramId,
+    username: typeof payload.username === 'string' ? payload.username : null,
+    firstName: firstName.trim()
+  };
+}
+
+function getRequestAmount(extraFields) {
+  if (!extraFields) return 'Not specified';
+  try {
+    const fields = typeof extraFields === 'string' ? JSON.parse(extraFields) : extraFields;
+    if (fields?.amount == null || String(fields.amount).trim() === '') return 'Not specified';
+    const amount = Number(fields?.amount);
+    return Number.isFinite(amount) && amount >= 0
+      ? `${new Intl.NumberFormat('en-US').format(amount)} MMK`
+      : 'Not specified';
+  } catch (error) {
+    console.error('Unable to read request amount for Telegram notification:', error.message);
+    return 'Not specified';
+  }
+}
+
+function formatRequestNotification(request, status) {
+  return [
+    `Request #${request.id}`,
+    `Title: ${request.title}`,
+    `Status: ${status}`,
+    `Amount: ${getRequestAmount(request.extraFields)}`,
+    `Requester: ${request.user?.name || request.user?.telegramFirstName || 'Unknown'}`
+  ].join('\n');
+}
+
+async function notifyTelegramChats(chatIds, message) {
+  const uniqueChatIds = [...new Set(chatIds.filter(chatId => {
+    if (/^\d+$/.test(String(chatId))) return true;
+    console.warn('Telegram notification skipped for an account without a numeric Telegram chat ID.');
+    return false;
+  }).map(String))];
+  const results = await Promise.allSettled(
+    uniqueChatIds.map(chatId => sendTelegramMessage(chatId, message))
+  );
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      console.error(`Telegram notification failed for chat ${uniqueChatIds[index]}:`, result.reason.message);
+    }
+  });
+}
+
+async function notifyRequestManagers(request) {
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.error('Telegram notification skipped: TELEGRAM_BOT_TOKEN is not configured.');
+    return;
+  }
+  const managers = await prisma.user.findMany({
+    where: {
+      role: { in: ['ADMIN', 'SUPER_ADMIN', 'MANAGER', 'GM', 'DGM'] },
+      telegramId: { not: null }
+    },
+    select: { telegramId: true }
+  });
+  await notifyTelegramChats(
+    managers.map(manager => manager.telegramId),
+    formatRequestNotification(request, request.status)
+  );
+}
+
+async function notifyRequestOwner(request, status) {
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.error('Telegram notification skipped: TELEGRAM_BOT_TOKEN is not configured.');
+    return;
+  }
+  const requester = await prisma.user.findUnique({
+    where: { id: request.userId },
+    select: { telegramId: true, telegramFirstName: true, name: true }
+  });
+  if (!requester?.telegramId) {
+    console.warn(`Telegram notification skipped for request ${request.id}: requester has no linked Telegram account.`);
+    return;
+  }
+  await notifyTelegramChats(
+    [requester.telegramId],
+    formatRequestNotification({ ...request, user: requester }, status)
+  );
 }
 
 // Auto Init Super Admin
@@ -103,7 +200,7 @@ async function initSuperAdmin() {
             OR: [
                 { role: 'SUPER_ADMIN' },
                 { email: superAdminEmail },
-                { telegramId: superAdminTelegram }
+                { telegramUsername: superAdminTelegram }
             ]
         }
     });
@@ -124,7 +221,7 @@ async function initSuperAdmin() {
         data: {
             name: 'Super Admin',
             email: superAdminEmail,
-            telegramId: superAdminTelegram,
+            telegramUsername: superAdminTelegram,
             password: hashedPassword,
             role: 'SUPER_ADMIN',
             department: 'Executive Management'
@@ -236,20 +333,26 @@ app.post('/api/login', async (req, res) => {
       where: { email: cleanKey }
     });
     const matchingTelegram = matchingEmail || await prisma.user.findFirst({
-      where: { telegramId: cleanKey }
+      where: {
+        OR: [
+          { telegramId: cleanKey },
+          { telegramUsername: { equals: cleanKey, mode: 'insensitive' } }
+        ]
+      }
     });
     const user = matchingTelegram || (await prisma.user.findMany({
-      select: { id: true, name: true, email: true, telegramId: true, password: true, role: true, department: true },
+      select: { id: true, name: true, email: true, telegramId: true, telegramUsername: true, password: true, role: true, department: true },
       where: {
         OR: [
           { email: { not: null } },
           { telegramId: { not: null } },
+          { telegramUsername: { not: null } },
           { name: { not: null } }
         ]
       }
     })).find(candidate =>
       candidate.email?.trim().toLowerCase() === cleanKey ||
-      candidate.telegramId?.trim().replace(/^@+/, '').toLowerCase() === cleanKey ||
+      candidate.telegramUsername?.trim().replace(/^@+/, '').toLowerCase() === cleanKey ||
       candidate.name?.trim().toLowerCase() === cleanKey
     );
 
@@ -272,6 +375,7 @@ app.post('/api/login', async (req, res) => {
         id: user.id,
         name: user.name,
         telegramId: user.telegramId,
+        telegramUsername: user.telegramUsername,
         role: user.role,
         department: user.department
       }
@@ -279,6 +383,103 @@ app.post('/api/login', async (req, res) => {
   } catch (error) {
     console.error("Login Error:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/telegram', async (req, res) => {
+  if (!TELEGRAM_BOT_TOKEN) {
+    return res.status(503).json({ error: 'Telegram login is not configured on this server.' });
+  }
+  const identity = verifyTelegramLogin(req.body, TELEGRAM_BOT_TOKEN);
+  if (!identity) {
+    return res.status(401).json({ error: 'Telegram authentication failed or has expired. Please try again.' });
+  }
+
+  try {
+    let user = await prisma.user.findUnique({ where: { telegramId: identity.id } });
+    if (user) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          telegramUsername: identity.username,
+          telegramFirstName: identity.firstName
+        }
+      });
+    } else {
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      user = await prisma.user.create({
+        data: {
+          name: identity.firstName,
+          email: `telegram-${identity.id}@telegram.local`,
+          password: await bcrypt.hash(randomPassword, 10),
+          telegramId: identity.id,
+          telegramUsername: identity.username,
+          telegramFirstName: identity.firstName,
+          department: 'General',
+          role: 'STAFF'
+        }
+      });
+    }
+
+    return res.json({
+      token: jwt.sign({ sub: String(user.id) }, jwtSecret, { expiresIn: '8h' }),
+      user: {
+        id: user.id,
+        name: user.name,
+        telegramId: user.telegramId,
+        telegramUsername: user.telegramUsername,
+        role: user.role,
+        department: user.department
+      }
+    });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'This Telegram account could not be linked to a user. Contact an administrator.' });
+    }
+    console.error('Telegram Login Error:', error);
+    return res.status(500).json({ error: 'Unable to sign in with Telegram.' });
+  }
+});
+
+app.post('/api/auth/telegram/link', requireApprovalAuthentication, async (req, res) => {
+  if (!TELEGRAM_BOT_TOKEN) {
+    return res.status(503).json({ error: 'Telegram login is not configured on this server.' });
+  }
+  const identity = verifyTelegramLogin(req.body, TELEGRAM_BOT_TOKEN);
+  if (!identity) {
+    return res.status(401).json({ error: 'Telegram authentication failed or has expired. Please try again.' });
+  }
+
+  try {
+    const existingOwner = await prisma.user.findUnique({ where: { telegramId: identity.id } });
+    if (existingOwner && existingOwner.id !== req.approverId) {
+      return res.status(409).json({ error: 'This Telegram account is already linked to another user.' });
+    }
+    const user = await prisma.user.update({
+      where: { id: req.approverId },
+      data: {
+        telegramId: identity.id,
+        telegramUsername: identity.username,
+        telegramFirstName: identity.firstName
+      }
+    });
+    return res.json({
+      message: 'Telegram account linked successfully.',
+      user: {
+        id: user.id,
+        name: user.name,
+        telegramId: user.telegramId,
+        telegramUsername: user.telegramUsername,
+        role: user.role,
+        department: user.department
+      }
+    });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'This Telegram account is already linked to another user.' });
+    }
+    console.error('Telegram Account Link Error:', error);
+    return res.status(500).json({ error: 'Unable to link the Telegram account.' });
   }
 });
 
@@ -310,7 +511,7 @@ app.post('/api/verify-mfa', async (req, res) => {
 // Create User API
 app.post('/api/users', async (req, res) => {
   try {
-    const { name, email, password, department, role, telegramId } = req.body || {};
+    const { name, email, password, department, role, telegramId, telegramUsername } = req.body || {};
 
     if (typeof name !== 'string' || !name.trim() ||
         typeof email !== 'string' || !email.trim() ||
@@ -347,8 +548,9 @@ app.post('/api/users', async (req, res) => {
         password: hashedPassword,
         department: department || 'General',
         role: role || 'STAFF',
-        telegramId: typeof telegramId === 'string' && telegramId.trim()
-          ? telegramId.replace(/^@+/, '').trim().toLowerCase()
+        telegramUsername: typeof (telegramUsername ?? telegramId) === 'string' &&
+          (telegramUsername ?? telegramId).trim()
+          ? (telegramUsername ?? telegramId).replace(/^@+/, '').trim().toLowerCase()
           : null
       }
     });
@@ -397,6 +599,7 @@ app.get('/api/users', async (req, res) => {
                 name: true,
                 email: true,
                 telegramId: true,
+                telegramUsername: true,
                 department: true,
                 role: true,
                 createdAt: true
@@ -414,7 +617,7 @@ app.get('/api/users', async (req, res) => {
 app.patch('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { role, department, telegramId } = req.body;
+    const { role, department, telegramId, telegramUsername } = req.body;
 
     if (role === 'SUPER_ADMIN') {
       return res.status(403).json({ error: 'Super Admin role is reserved and hidden from normal user management.' });
@@ -425,7 +628,9 @@ app.patch('/api/users/:id', async (req, res) => {
       data: {
         ...(role && { role }),
         ...(department && { department }),
-        ...(telegramId && { telegramId: String(telegramId).replace(/^@+/, '').trim().toLowerCase() })
+        ...((telegramUsername || telegramId) && {
+          telegramUsername: String(telegramUsername || telegramId).replace(/^@+/, '').trim().toLowerCase()
+        })
       }
     });
 
@@ -525,7 +730,13 @@ app.post('/api/requests', requireApprovalAuthentication, upload.single('attachme
           create: chain.map(({ stage, ...step }) => step)
         }
       },
-      include: { approvalSteps: { orderBy: { sequence: 'asc' } } }
+      include: {
+        user: { select: { id: true, name: true, telegramFirstName: true } },
+        approvalSteps: { orderBy: { sequence: 'asc' } }
+      }
+    });
+    void notifyRequestManagers(newRequest).catch(error => {
+      console.error(`Unable to send new-request Telegram notifications for request ${newRequest.id}:`, error);
     });
     return res.status(201).json(newRequest);
   } catch (error) {
@@ -790,6 +1001,12 @@ async function handleRequestApproval(req, res) {
       });
     });
 
+    if (updatedRequest.status !== request.status &&
+        ['APPROVED', 'REJECTED'].includes(updatedRequest.status)) {
+      void notifyRequestOwner(updatedRequest, updatedRequest.status).catch(error => {
+        console.error(`Unable to send status Telegram notification for request ${requestId}:`, error);
+      });
+    }
     return res.json({ message: 'Request approval updated.', request: updatedRequest });
   } catch (error) {
     if (error.message === 'This request has already been updated. Refresh and try again.') {
@@ -869,4 +1086,13 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, start, buildApprovalChain, getApprovalTransition, canUserSeeRequest };
+module.exports = {
+  app,
+  start,
+  buildApprovalChain,
+  getApprovalTransition,
+  canUserSeeRequest,
+  verifyTelegramLogin,
+  getRequestAmount,
+  formatRequestNotification
+};

@@ -106,6 +106,14 @@
             <span id="superTag" class="super-admin-tag" style="display:none; margin-left:10px;">SUPER ADMIN</span>
             <span id="execTag" class="executive-tag" style="display:none; margin-left:10px;">EXECUTIVE LEVEL</span>
             <button onclick="logout()" style="float: right; padding: 6px 14px; background: var(--danger); font-size: 12px;">Logout</button>
+            <div style="clear: both; padding-top: 10px;">
+                <small>Link Telegram for login and request notifications:</small>
+                <script async src="https://telegram.org/js/telegram-widget.js?22"
+                    data-telegram-login="Loki_bot"
+                    data-size="small"
+                    data-onauth="onTelegramAuth(user, true)"
+                    data-request-access="write"></script>
+            </div>
         </div>
 
         <div id="mfaModal" class="mfa-modal" style="display: none;">
@@ -134,6 +142,14 @@
                             <input type="password" id="loginPassword" placeholder="Password" required>
                             <button type="submit" style="width: 100%; margin-top: 15px;">Sign In</button>
                         </form>
+                        <div style="margin-top: 20px; text-align: center;">
+                            <p style="color: var(--text-muted);">Or sign in with Telegram</p>
+                            <script async src="https://telegram.org/js/telegram-widget.js?22"
+                                data-telegram-login="Loki_bot"
+                                data-size="large"
+                                data-onauth="onTelegramAuth(user)"
+                                data-request-access="write"></script>
+                        </div>
                     </div>
 
                     <div id="registerTabContent" style="display: none;">
@@ -316,6 +332,34 @@
                 if (registerContent) registerContent.style.display = 'block';
                 if (registerBtn) registerBtn.classList.add('active');
                 if (loginBtn) loginBtn.classList.remove('active');
+            }
+        }
+
+        async function onTelegramAuth(telegramUser, linkAccount = false) {
+            try {
+                const response = await fetch(linkAccount ? '/api/auth/telegram/link' : '/api/auth/telegram', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(linkAccount && sessionToken ? { Authorization: 'Bearer ' + sessionToken } : {})
+                    },
+                    body: JSON.stringify(telegramUser)
+                });
+                const data = await response.json();
+                if (!response.ok || !data.user || (!linkAccount && !data.token)) {
+                    throw new Error(data.error || 'Unable to sign in with Telegram.');
+                }
+                currentUser = data.user;
+                if (linkAccount) {
+                    alert(data.message);
+                } else {
+                    sessionToken = data.token;
+                    updateUI();
+                    renderDynamicFields();
+                    loadRequests();
+                }
+            } catch (error) {
+                alert('Telegram Login Error: ' + error.message);
             }
         }
 
