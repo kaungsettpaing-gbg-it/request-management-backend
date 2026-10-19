@@ -14,8 +14,8 @@ model User {
   name          String?
   department    String?
   role          String                @default("USER")
-  telegramId    String?               @unique
-  telegramUsername String?
+  telegramId        String?               @unique
+  telegramUsername  String?
   telegramFirstName String?
   otp           String?
   otpExpiry     DateTime?

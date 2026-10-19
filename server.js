@@ -26,6 +26,10 @@ if (!hasStrongJwtSecret) {
 
 app.use(express.json());
 app.use(cors());
+app.get('/api/config', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return res.json({ telegramBotUsername: TELEGRAM_BOT_USERNAME });
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -41,7 +45,7 @@ const upload = multer({ storage });
 
 // Telegram Bot Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const SUPER_ADMIN_TELE_USERNAME = 'okeydokey2';
+const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '') || '';
 
 async function sendTelegramOTP(chatId, otpCode) {
   try {
