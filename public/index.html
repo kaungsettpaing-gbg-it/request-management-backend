@@ -17,6 +17,7 @@
             --danger: #ef4444;
             --warning: #f59e0b;
         }
+        void refreshTelegramConnectionStatus();
 
         body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 20px; background: var(--bg-main); color: var(--text-dark); }
         body.login-screen {
@@ -550,6 +551,9 @@
         let pendingMfaEmail = null;
         let currentRequestTab = 'PENDING';
         let requestLoadId = 0;
+        let telegramStatusPollTimer = null;
+        let telegramStatusPollDeadline = 0;
+        let telegramStatusRefreshPending = false;
         const TELEGRAM_AUTH_ENDPOINT = '/api/auth/telegram';
         let pendingProfileToken = null;
         let registrationTelegramLink = null;
@@ -653,6 +657,7 @@
             status.hidden = false;
             status.className = 'telegram-status-badge';
             status.textContent = 'Generating secure Telegram link…';
+            startTelegramConnectionPolling();
             try {
                 const response = await fetch('/api/telegram/link', {
                     method: 'POST',
@@ -665,11 +670,73 @@
                 telegramWindow.location.replace(data.deepLink);
                 status.textContent = 'Telegram opened. Complete /start in the bot within 10 minutes.';
             } catch (error) {
+                stopTelegramConnectionPolling();
                 telegramWindow.close();
                 status.textContent = error.message;
             } finally {
                 button.disabled = false;
             }
+        }
+
+        async function refreshTelegramConnectionStatus() {
+            if (!sessionToken || !currentUser || telegramStatusRefreshPending) return;
+            const requestToken = sessionToken;
+            const requestUser = currentUser;
+            telegramStatusRefreshPending = true;
+            try {
+                const response = await fetch('/api/telegram/me', {
+                    headers: { Authorization: 'Bearer ' + requestToken },
+                    cache: 'no-store'
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Unable to refresh Telegram connection status.');
+                }
+                if (sessionToken !== requestToken || currentUser !== requestUser) return;
+                currentUser.telegramId = data.telegramId || null;
+                currentUser.telegramUsername = data.telegramUsername || null;
+                const button = document.getElementById('accountTelegramConnectButton');
+                const badge = document.getElementById('accountTelegramStatus');
+                if (button) {
+                    button.hidden = Boolean(data.telegramConnected);
+                    button.disabled = Boolean(data.telegramConnected);
+                }
+                if (badge) {
+                    badge.hidden = !data.telegramConnected;
+                    badge.className = 'telegram-status-badge' +
+                        (data.telegramConnected ? ' is-connected' : '');
+                    badge.textContent = data.telegramConnected ? '✅ Telegram Connected' : '';
+                }
+                if (data.telegramConnected) {
+                    stopTelegramConnectionPolling();
+                } else if (telegramStatusPollDeadline && Date.now() >= telegramStatusPollDeadline) {
+                    stopTelegramConnectionPolling();
+                }
+            } catch (error) {
+                if (sessionToken === requestToken && currentUser === requestUser) {
+                    console.error('Telegram connection status refresh failed:', error);
+                }
+            } finally {
+                telegramStatusRefreshPending = false;
+            }
+        }
+
+        function startTelegramConnectionPolling() {
+            stopTelegramConnectionPolling();
+            telegramStatusPollDeadline = Date.now() + (10 * 60 * 1000);
+            void refreshTelegramConnectionStatus();
+            telegramStatusPollTimer = window.setInterval(() => {
+                if (!document.hidden) void refreshTelegramConnectionStatus();
+                if (Date.now() >= telegramStatusPollDeadline) stopTelegramConnectionPolling();
+            }, 2500);
+        }
+
+        function stopTelegramConnectionPolling() {
+            if (telegramStatusPollTimer !== null) {
+                window.clearInterval(telegramStatusPollTimer);
+                telegramStatusPollTimer = null;
+            }
+            telegramStatusPollDeadline = 0;
         }
 
         async function checkTelegramStatus() {
@@ -935,6 +1002,7 @@
         }
 
         function logout() {
+            stopTelegramConnectionPolling();
             currentUser = null;
             sessionToken = null;
             pendingProfileToken = null;
@@ -1382,6 +1450,12 @@
             renderDynamicFields();
             loadTelegramWidgets().catch(error => {
                 console.error('Telegram widget initialization failed:', error);
+            });
+            window.addEventListener('focus', () => {
+                void refreshTelegramConnectionStatus();
+            });
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) void refreshTelegramConnectionStatus();
             });
 
             document.getElementById('completeProfileForm')?.addEventListener('submit', async event => {

@@ -319,6 +319,28 @@ app.post('/api/telegram/link', requireApprovalAuthentication, async (req, res) =
   }
 });
 
+app.get('/api/telegram/me', requireApprovalAuthentication, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.approverId },
+      select: { telegramId: true, telegramUsername: true }
+    });
+    if (!user) {
+      return res.status(401).json({ error: 'The account for this session no longer exists.' });
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.json({
+      telegramConnected: Boolean(user.telegramId),
+      telegramId: user.telegramId,
+      telegramUsername: user.telegramUsername
+    });
+  } catch (error) {
+    console.error('Unable to refresh Telegram connection state:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to check your Telegram connection.' });
+  }
+});
+
 app.post('/api/telegram/webhook', async (req, res) => {
   if (!TELEGRAM_WEBHOOK_SECRET) {
     return res.status(503).json({ error: 'Telegram webhook is not configured.' });
@@ -351,6 +373,9 @@ app.post('/api/telegram/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
+    if (!tokenRecord.userId || !Number.isSafeInteger(tokenRecord.userId)) {
+      throw new Error('Telegram account link contains an invalid user reference.');
+    }
     await prisma.$transaction(async transaction => {
       const claimed = await transaction.telegramLinkToken.updateMany({
         where: { tokenHash, consumedAt: null, expiresAt: { gt: now } },
@@ -396,7 +421,7 @@ app.post('/api/telegram/webhook', async (req, res) => {
   try {
     await sendTelegramMessage(
       String(message.chat.id),
-      '✅ Account linked successfully! You will now receive system notifications here.'
+      '✅ Your account has been linked successfully!'
     );
   } catch (error) {
     console.error('Telegram account linked but confirmation message could not be delivered:', error);
