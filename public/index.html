@@ -21,10 +21,36 @@
         body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 20px; background: var(--bg-main); color: var(--text-dark); }
         body.login-screen {
             min-height: 100vh;
+            overflow-x: hidden;
             background:
                 radial-gradient(ellipse at 50% 16%, rgba(99,102,241,0.24), transparent 42%),
                 radial-gradient(ellipse at 12% 82%, rgba(14,165,233,0.12), transparent 34%),
                 #070b18;
+        }
+        #authSection {
+            position: relative;
+            isolation: isolate;
+        }
+        #authSection::before, #authSection::after {
+            position: absolute;
+            z-index: -1;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            content: "";
+            filter: blur(85px);
+            opacity: 0.55;
+            pointer-events: none;
+        }
+        #authSection::before {
+            top: 40px;
+            left: calc(50% - 370px);
+            background: rgba(42,171,238,0.32);
+        }
+        #authSection::after {
+            right: calc(50% - 370px);
+            bottom: 10px;
+            background: rgba(129,140,248,0.32);
         }
         body.login-screen .container {
             background:
@@ -70,15 +96,26 @@
             max-width: 440px;
             margin: 50px auto;
             overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.2);
             border-radius: 18px;
             background:
                 radial-gradient(ellipse at 50% 0%, rgba(129,140,248,0.19), transparent 56%),
                 linear-gradient(145deg, rgba(255,255,255,0.075), transparent 42%),
-                rgba(8,13,28,0.58);
+                rgba(255,255,255,0.07);
             box-shadow: 0 28px 80px rgba(0,0,0,0.58), 0 0 44px rgba(99,102,241,0.12), inset 0 1px 0 rgba(255,255,255,0.16);
-            -webkit-backdrop-filter: blur(18px);
-            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(40px) saturate(150%);
+            backdrop-filter: blur(40px) saturate(150%);
+        }
+        .auth-wrapper::before {
+            position: absolute;
+            z-index: 2;
+            top: 0;
+            right: 0;
+            left: 0;
+            height: 1px;
+            content: "";
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.72), transparent);
+            pointer-events: none;
         }
         .auth-tabs { display: flex; background: rgba(2,6,23,0.28); border-bottom: 1px solid rgba(255,255,255,0.1); }
         .auth-tab-btn { flex: 1; padding: 16px; text-align: center; background: transparent; color: var(--text-muted); border: none; font-weight: 600; cursor: pointer; }
@@ -109,6 +146,54 @@
         .auth-content form button[type="submit"]:focus-visible, .auth-tab-btn:focus-visible {
             outline: 2px solid #c7d2fe;
             outline-offset: 3px;
+        }
+        .telegram-connection-banner {
+            margin-top: 24px;
+            padding: 18px;
+            border: 1px solid rgba(42,171,238,0.38);
+            border-top: 1px solid rgba(255,255,255,0.3);
+            border-radius: 14px;
+            background:
+                linear-gradient(145deg, rgba(42,171,238,0.16), rgba(42,171,238,0.035) 72%),
+                rgba(255,255,255,0.07);
+            box-shadow: 0 12px 32px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.12);
+            -webkit-backdrop-filter: blur(24px);
+            backdrop-filter: blur(24px);
+        }
+        .telegram-connection-banner p {
+            margin: 8px 0 14px;
+            color: #dbeafe;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .telegram-connect-button {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 48px;
+            padding: 10px 14px;
+            border: 1px solid rgba(255,255,255,0.34);
+            border-radius: 10px;
+            background: linear-gradient(135deg, #36b9f4, #2aabee 58%, #168bd1);
+            box-shadow: 0 8px 22px rgba(42,171,238,0.28), inset 0 1px 0 rgba(255,255,255,0.35);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 700;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .telegram-connect-button svg { flex: 0 0 22px; }
+        .telegram-register-widget {
+            display: flex;
+            flex: 1;
+            justify-content: flex-end;
+            margin-left: auto;
+            min-height: 36px;
+        }
+        .telegram-register-widget iframe { vertical-align: middle; }
+        .telegram-register-widget:empty::after {
+            content: "Loading Telegram…";
+            color: rgba(255,255,255,0.8);
+            font-size: 12px;
         }
 
         .req-tabs-container { display: flex; gap: 8px; background: #0f172a; padding: 6px; border-radius: 10px; margin-bottom: 20px; border: 1px solid var(--border-color); }
@@ -238,7 +323,7 @@
                         <h3 style="border:none; padding:0; margin-bottom:20px;">Secure Account Login</h3>
                         <form id="loginForm">
                             <label><small>Email or Username:</small></label>
-                            <input type="text" id="loginEmail" name="email" autocomplete="username" placeholder="Enter your email or username" required>
+                            <input type="text" id="loginEmail" name="email" autocomplete="username" placeholder="admin@company.com" required>
                             <label><small>Password:</small></label>
                             <input type="password" id="loginPassword" placeholder="Password" required>
                             <button type="submit" style="width: 100%; margin-top: 15px;">Sign In</button>
@@ -253,7 +338,7 @@
                         <h3 style="border:none; padding:0; margin-bottom:20px;">Register New User</h3>
                         <form id="userForm">
                             <input type="text" id="regName" placeholder="Full Name" required>
-                            <input type="email" id="regEmail" placeholder="Email" required>
+                            <input type="email" id="regEmail" autocomplete="email" placeholder="admin@company.com" required>
                             <input type="password" id="regPassword" placeholder="Password" required>
                             
                             <label><small>Your Department:</small></label>
@@ -278,6 +363,17 @@
                             </select>
                             <button type="submit" style="width: 100%; background: var(--success); margin-top: 15px;">Create Account</button>
                         </form>
+                        <aside class="telegram-connection-banner" aria-labelledby="telegramConnectHeading">
+                            <strong id="telegramConnectHeading">Telegram Notification Connection</strong>
+                            <p>Connect Telegram for instant notification access and system authorization</p>
+                            <div class="telegram-connect-button">
+                                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                                    <path fill="currentColor" d="M21.6 3.2 18.4 20c-.2 1.2-.9 1.5-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.3-8.4c.4-.4-.1-.6-.6-.2L5.8 13.6.9 12c-1.1-.3-1.1-1 .2-1.5L20.2 3c.9-.3 1.7.2 1.4.2Z"/>
+                                </svg>
+                                <span>Connect Telegram Bot</span>
+                                <div id="telegramRegisterWidget" class="telegram-register-widget" aria-label="Continue with Telegram"></div>
+                            </div>
+                        </aside>
                     </div>
                 </div>
             </div>
@@ -483,7 +579,8 @@
 
             [
                 { id: 'telegramLoginWidget', size: 'large', callback: 'onTelegramAuth(user)' },
-                { id: 'telegramLinkWidget', size: 'small', callback: 'onTelegramAuth(user, true)' }
+                { id: 'telegramLinkWidget', size: 'small', callback: 'onTelegramAuth(user, true)' },
+                { id: 'telegramRegisterWidget', size: 'large', callback: 'onTelegramAuth(user)' }
             ].forEach(({ id, size, callback }) => {
                 const container = document.getElementById(id);
                 if (!container) return;
