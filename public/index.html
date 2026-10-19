@@ -31,11 +31,51 @@
         
         .card { background: #1e293b; padding: 25px; border-radius: 12px; margin-bottom: 25px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
 
-        .auth-wrapper { max-width: 440px; margin: 50px auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 16px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); overflow: hidden; }
-        .auth-tabs { display: flex; background: #0f172a; border-bottom: 1px solid var(--border-color); }
+        .auth-wrapper {
+            position: relative;
+            isolation: isolate;
+            max-width: 440px;
+            margin: 50px auto;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 18px;
+            background:
+                linear-gradient(145deg, rgba(255,255,255,0.08), transparent 38%),
+                rgba(15,23,42,0.75);
+            box-shadow: 0 24px 60px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.12);
+            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px);
+        }
+        .auth-tabs { display: flex; background: rgba(2,6,23,0.28); border-bottom: 1px solid rgba(255,255,255,0.1); }
         .auth-tab-btn { flex: 1; padding: 16px; text-align: center; background: transparent; color: var(--text-muted); border: none; font-weight: 600; cursor: pointer; }
-        .auth-tab-btn.active { background: #1e293b; color: var(--primary); border-bottom: 3px solid var(--primary); }
+        .auth-tab-btn.active { background: rgba(255,255,255,0.04); color: #c7d2fe; border-bottom: 3px solid #818cf8; }
         .auth-content { padding: 30px; }
+        .auth-content input, .auth-content select {
+            border-color: rgba(255,255,255,0.13);
+            background: rgba(2,6,23,0.36);
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+        }
+        .auth-content input::placeholder { color: rgba(203,213,225,0.58); }
+        .auth-content input:focus, .auth-content select:focus {
+            border-color: rgba(129,140,248,0.8);
+            background: rgba(2,6,23,0.52);
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.2), 0 0 22px rgba(99,102,241,0.12);
+        }
+        .auth-content form button[type="submit"] {
+            border: 1px solid rgba(255,255,255,0.2);
+            background: linear-gradient(135deg, #818cf8 0%, #6366f1 48%, #4f46e5 100%);
+            box-shadow: 0 8px 20px rgba(79,70,229,0.32), inset 0 1px 0 rgba(255,255,255,0.28);
+            transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
+        }
+        .auth-content form button[type="submit"]:hover {
+            background: linear-gradient(135deg, #a5b4fc 0%, #818cf8 48%, #6366f1 100%);
+            box-shadow: 0 11px 26px rgba(79,70,229,0.42), inset 0 1px 0 rgba(255,255,255,0.35);
+            transform: translateY(-1px);
+        }
+        .auth-content form button[type="submit"]:focus-visible, .auth-tab-btn:focus-visible {
+            outline: 2px solid #c7d2fe;
+            outline-offset: 3px;
+        }
 
         .req-tabs-container { display: flex; gap: 8px; background: #0f172a; padding: 6px; border-radius: 10px; margin-bottom: 20px; border: 1px solid var(--border-color); }
         .req-tab-btn { flex: 1; padding: 12px; text-align: center; background: transparent; color: var(--text-muted); border: none; font-weight: 600; cursor: pointer; border-radius: 8px; transition: all 0.2s; }
@@ -164,7 +204,7 @@
                         <h3 style="border:none; padding:0; margin-bottom:20px;">Secure Account Login</h3>
                         <form id="loginForm">
                             <label><small>Email or Username:</small></label>
-                            <input type="text" id="loginEmail" placeholder="kaungsettpaing@admin.com" required>
+                            <input type="text" id="loginEmail" name="email" autocomplete="username" placeholder="Enter your email or username" required>
                             <label><small>Password:</small></label>
                             <input type="password" id="loginPassword" placeholder="Password" required>
                             <button type="submit" style="width: 100%; margin-top: 15px;">Sign In</button>

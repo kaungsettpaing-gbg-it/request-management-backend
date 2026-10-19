@@ -58,7 +58,7 @@
                     <h3>Login</h3>
                     <form id="loginForm">
                         <label><small>Email or Username:</small></label>
-                        <input type="text" id="loginEmail" placeholder="e.g. kaungsettpaing@admin.com or Kaung Sett Paing" required>
+                        <input type="text" id="loginEmail" placeholder="Enter your email or username" required>
                         <label><small>Password:</small></label>
                         <input type="password" id="loginPassword" placeholder="Password" required>
                         <button type="submit">Login</button>
