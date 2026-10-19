@@ -577,8 +577,98 @@
         let telegramStatusPollDeadline = 0;
         let telegramStatusRefreshPending = false;
         const TELEGRAM_AUTH_ENDPOINT = '/api/auth/telegram';
+        const SESSION_STORAGE_KEY = 'requestManagementSession';
         let pendingProfileToken = null;
         let registrationTelegramLink = null;
+
+        function persistSession(user, token, pendingProfile = false) {
+            currentUser = pendingProfile ? null : user;
+            sessionToken = token;
+            try {
+                localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+                    user,
+                    token,
+                    pendingProfile
+                }));
+            } catch (error) {
+                console.error('Unable to persist the login session in this browser:', error);
+                alert('You are signed in, but this browser could not save your session. You may be signed out after refreshing.');
+            }
+        }
+
+        function clearPersistedSession() {
+            try {
+                localStorage.removeItem(SESSION_STORAGE_KEY);
+            } catch (error) {
+                console.error('Unable to clear the saved login session:', error);
+            }
+        }
+
+        async function restoreSession() {
+            let savedSession;
+            try {
+                savedSession = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null');
+            } catch (error) {
+                console.error('The saved login session could not be read:', error);
+                clearPersistedSession();
+                updateUI();
+                return;
+            }
+
+            if (!savedSession || typeof savedSession.token !== 'string' ||
+                !savedSession.token || !savedSession.user) {
+                updateUI();
+                return;
+            }
+
+            sessionToken = savedSession.token;
+            try {
+                const response = await fetch('/api/auth/session', {
+                    headers: { Authorization: 'Bearer ' + sessionToken },
+                    cache: 'no-store'
+                });
+                const data = await response.json();
+                if (sessionToken !== savedSession.token) return;
+                if (response.status === 401) {
+                    currentUser = null;
+                    sessionToken = null;
+                    pendingProfileToken = null;
+                    clearPersistedSession();
+                    updateUI();
+                    return;
+                }
+                if (!response.ok || !data.user) {
+                    throw new Error(data.error || 'Unable to validate the saved login session.');
+                }
+
+                if (data.requiresOnboarding) {
+                    currentUser = null;
+                    pendingProfileToken = sessionToken;
+                    persistSession(data.user, sessionToken, true);
+                    document.getElementById('completeProfileModal').style.display = 'flex';
+                    return;
+                }
+
+                pendingProfileToken = null;
+                persistSession(data.user, sessionToken);
+                updateUI();
+                renderDynamicFields();
+                loadRequests();
+            } catch (error) {
+                if (sessionToken !== savedSession.token) return;
+                console.error('Unable to validate the saved login session:', error);
+                if (savedSession.pendingProfile) {
+                    currentUser = null;
+                    pendingProfileToken = sessionToken;
+                    document.getElementById('completeProfileModal').style.display = 'flex';
+                    return;
+                }
+                currentUser = savedSession.user;
+                updateUI();
+                renderDynamicFields();
+                loadRequests();
+            }
+        }
 
         function switchAuthTab(tab) {
             const loginContent = document.getElementById('loginTabContent');
@@ -618,15 +708,16 @@
                 }
                 if (!linkAccount && data.requiresOnboarding) {
                     pendingProfileToken = data.token;
+                    persistSession(data.user, data.token, true);
                     document.getElementById('completeProfileModal').style.display = 'flex';
                     return;
                 }
-                currentUser = data.user;
                 if (linkAccount) {
+                    currentUser = data.user;
                     updateUI();
                     alert(data.message);
                 } else {
-                    sessionToken = data.token;
+                    persistSession(data.user, data.token);
                     updateUI();
                     renderDynamicFields();
                     loadRequests();
@@ -1034,6 +1125,7 @@
             currentUser = null;
             sessionToken = null;
             pendingProfileToken = null;
+            clearPersistedSession();
             updateUI();
         }
 
@@ -1093,8 +1185,7 @@
                 const data = await res.json();
                 if (res.ok && data.user) {
                     document.getElementById('mfaModal').style.display = 'none';
-                    currentUser = data.user;
-                    sessionToken = data.token || null;
+                    persistSession(data.user, data.token);
                     updateUI();
                     renderDynamicFields();
                     loadRequests();
@@ -1476,6 +1567,7 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             renderDynamicFields();
+            void restoreSession();
             loadTelegramWidgets().catch(error => {
                 console.error('Telegram widget initialization failed:', error);
             });
@@ -1508,6 +1600,7 @@
                     }
                     currentUser = data.user;
                     sessionToken = pendingProfileToken;
+                    persistSession(data.user, sessionToken);
                     pendingProfileToken = null;
                     document.getElementById('completeProfileModal').style.display = 'none';
                     event.currentTarget.reset();
@@ -1583,8 +1676,7 @@
                                 pendingMfaEmail = data.email;
                                 document.getElementById('mfaModal').style.display = 'flex';
                             } else if (data.user) {
-                                currentUser = data.user;
-                                sessionToken = data.token || null;
+                                persistSession(data.user, data.token);
                                 updateUI();
                                 renderDynamicFields();
                                 loadRequests();
