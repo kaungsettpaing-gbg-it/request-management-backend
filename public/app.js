@@ -42,8 +42,12 @@ function renderDynamicFields() {
     if (cat === 'Purchase') {
         container.innerHTML = '<label><small>Estimated Amount ($ / MMK):</small></label>' +
             '<input type="number" id="dyn_amount" placeholder="e.g. 500000 or 1000000" required>' +
-            '<label><small>Quantity / Items:</small></label>' +
-            '<input type="text" id="dyn_quantity" placeholder="e.g. 2 Laptops" required>';
+            '<label for="dyn_items"><small>Items / Description:</small></label>' +
+            '<input type="text" id="dyn_items" placeholder="e.g. Stationery, Office Laptop" required>' +
+            '<label for="dyn_quantity"><small>Quantity (optional):</small></label>' +
+            '<input type="number" id="dyn_quantity" min="1" step="1" placeholder="e.g. 5">' +
+            '<label for="dyn_quantityUnit"><small>Unit (optional):</small></label>' +
+            '<input type="text" id="dyn_quantityUnit" placeholder="e.g. pcs, box">';
     } else if (cat === 'Leave') {
         container.innerHTML = '<label><small>Leave Type:</small></label>' +
             '<select id="dyn_leaveType">' +
@@ -195,7 +199,21 @@ function renderRequests(requests) {
         let extraStr = '';
         try {
             const extra = req.extraFields ? JSON.parse(req.extraFields) : {};
-            extraStr = Object.entries(extra).map(([k, v]) => '<b>' + k + ':</b> ' + v).join(' | ');
+            const hasQuantity = extra.quantity !== undefined && extra.quantity !== null &&
+                String(extra.quantity).trim() !== '' && Number.isFinite(Number(extra.quantity));
+            const itemDetails = extra.items || (!hasQuantity ? extra.quantity : '');
+            const quantityText = hasQuantity
+                ? 'Qty: ' + extra.quantity + (extra.quantityUnit ? ' ' + extra.quantityUnit : '')
+                : '';
+            const itemText = itemDetails
+                ? 'Items: ' + itemDetails + (quantityText ? ' (' + quantityText + ')' : '')
+                : quantityText;
+            const otherFields = Object.entries(extra)
+                .filter(([key]) => !['items', 'quantity', 'quantityUnit'].includes(key))
+                .map(([key, value]) => '<b>' + key + ':</b> ' + value);
+            extraStr = [itemText ? '<b>' + itemText + '</b>' : '', ...otherFields]
+                .filter(Boolean)
+                .join(' | ');
         } catch(e) {}
 
         let fileLink = req.attachment ? '<br><small>📎 <b>Attachment:</b> <a href="/' + req.attachment + '" target="_blank">Download/View File</a></small>' : '';
@@ -351,7 +369,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const cat = document.getElementById('category').value;
         if (cat === 'Purchase') {
             extraFields.amount = document.getElementById('dyn_amount')?.value;
+            extraFields.items = document.getElementById('dyn_items')?.value.trim();
             extraFields.quantity = document.getElementById('dyn_quantity')?.value;
+            extraFields.quantityUnit = document.getElementById('dyn_quantityUnit')?.value.trim();
         } else if (cat === 'Leave') {
             extraFields.leaveType = document.getElementById('dyn_leaveType')?.value;
             extraFields.days = document.getElementById('dyn_days')?.value;
