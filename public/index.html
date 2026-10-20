@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enterprise Request Management System - Cloud Security Edition</title>
     <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
         :root {
             --bg-main: #0f172a;
             --card-bg: #1e293b;
@@ -18,7 +20,7 @@
             --warning: #f59e0b;
         }
 
-        body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 20px; background: var(--bg-main); color: var(--text-dark); }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 16px; background: var(--bg-main); color: var(--text-dark); }
         body.login-screen {
             min-height: 100vh;
             overflow-x: hidden;
@@ -39,6 +41,7 @@
         #authSection {
             position: relative;
             isolation: isolate;
+            overflow: hidden;
         }
         #authSection::before, #authSection::after {
             position: absolute;
@@ -101,6 +104,8 @@
         
         button { background: var(--primary); color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 8px; font-weight: 600; font-size: 14px; transition: background 0.2s; }
         button:hover { background: var(--primary-hover); }
+        button:disabled { cursor: not-allowed; opacity: 0.65; }
+        :focus-visible { outline: 2px solid #a5b4fc; outline-offset: 3px; }
         
         .card { background: #1e293b; padding: 25px; border-radius: 12px; margin-bottom: 25px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .feedback-launcher {
@@ -182,9 +187,16 @@
             border-color: rgba(248,113,113,0.45);
             color: #fecaca;
         }
-        @media (max-width: 520px) {
-            .feedback-launcher { right: 16px; bottom: 16px; }
-            .feedback-dialog { padding: 24px 20px; }
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
         #userManagementCard {
             background:
@@ -380,7 +392,38 @@
         th { color: var(--text-muted); background: #0f172a; }
 
         .mfa-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .mfa-card { background: #1e293b; padding: 30px; border-radius: 12px; width: 350px; border: 1px solid var(--primary); text-align: center; }
+        .mfa-card { background: #1e293b; padding: 30px; border-radius: 12px; width: min(100%, 350px); border: 1px solid var(--primary); text-align: center; }
+
+        @media (max-width: 760px) {
+            body { padding: 12px; }
+            .container { padding: 24px; margin: 12px auto; }
+            .stats-container { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+            .stat-card { padding: 16px 10px; }
+            .request-header { flex-direction: column; gap: 12px; }
+            .request-header > div:last-child { display: flex; gap: 8px; }
+            .request-header > div:last-child button { flex: 1; margin: 0; }
+            #userManagementCard > div:first-of-type { display: flex; flex-wrap: wrap; gap: 8px; }
+            #userManagementCard .telegram-status-badge { margin: 0; }
+            #dashboardSection > div[style*="justify-content: space-between"] { align-items: flex-start !important; flex-direction: column; gap: 12px; }
+            #exportActionSelect { max-width: 100%; }
+        }
+        @media (max-width: 520px) {
+            .container { padding: 16px; margin: 8px auto; border-radius: 12px; }
+            .header-title { font-size: 20px; margin-bottom: 18px; }
+            .auth-wrapper { margin: 20px auto; }
+            .auth-content { padding: 20px; }
+            .card { padding: 18px; }
+            .req-tabs-container { flex-direction: column; }
+            .req-tab-btn { padding: 11px; }
+            .filter-bar { flex-direction: column; align-items: stretch; gap: 10px; }
+            .filter-bar input, .filter-bar select { min-width: 0; }
+            #sessionBar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+            #sessionBar > button { float: none !important; margin-left: auto; }
+            #sessionBar > div { flex-basis: 100%; padding-top: 8px !important; }
+            #requestFormCard .dynamic-fields { padding: 12px; }
+            .feedback-launcher { right: 16px; bottom: 16px; }
+            .feedback-dialog { padding: 24px 20px; }
+        }
 
         @media print {
             body { background: #ffffff; color: #000000; padding: 0; }
@@ -402,7 +445,7 @@
             <strong>Role:</strong> <span id="sessRole" style="color: #818cf8;"></span>
             <span id="superTag" class="super-admin-tag" style="display:none; margin-left:10px;">SUPER ADMIN</span>
             <span id="execTag" class="executive-tag" style="display:none; margin-left:10px;">EXECUTIVE LEVEL</span>
-            <button onclick="logout()" style="float: right; padding: 6px 14px; background: var(--danger); font-size: 12px;">Logout</button>
+            <button type="button" onclick="logout()" style="float: right; padding: 6px 14px; background: var(--danger); font-size: 12px;">Logout</button>
             <div style="clear: both; padding-top: 10px;">
                 <small>Connect Telegram for login and instant request alerts:</small>
                 <div style="margin: 8px 0;">
@@ -412,12 +455,13 @@
             </div>
         </div>
 
-        <div id="mfaModal" class="mfa-modal" style="display: none;">
+        <div id="mfaModal" class="mfa-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="mfaTitle">
             <div class="mfa-card">
-                <h3>🔐 MFA Verification Required</h3>
+                <h3 id="mfaTitle">🔐 MFA Verification Required</h3>
                 <p style="font-size: 12px; color: var(--text-muted);">Please check Server Terminal for 6-Digit Verification Code.</p>
-                <input type="text" id="mfaCodeInput" placeholder="Enter 6-Digit Code" style="text-align: center; font-size: 18px; letter-spacing: 4px;">
-                <button onclick="submitMfaCode()" style="width: 100%; margin-top: 10px;">Verify & Access System</button>
+                <label for="mfaCodeInput"><small>6-digit verification code</small></label>
+                <input type="text" id="mfaCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Enter 6-Digit Code" style="text-align: center; font-size: 18px; letter-spacing: 4px;">
+                <button type="button" onclick="submitMfaCode()" style="width: 100%; margin-top: 10px;">Verify & Access System</button>
             </div>
         </div>
 
@@ -454,19 +498,19 @@
 
         <div id="authSection">
             <div class="auth-wrapper">
-                <div class="auth-tabs">
-                    <button id="tabLoginBtn" class="auth-tab-btn active" type="button" onclick="switchAuthTab('login')">Login</button>
-                    <button id="tabRegisterBtn" class="auth-tab-btn" type="button" onclick="switchAuthTab('register')">Register</button>
+                <div class="auth-tabs" role="group" aria-label="Account access">
+                    <button id="tabLoginBtn" class="auth-tab-btn active" type="button" aria-pressed="true" aria-controls="loginTabContent" onclick="switchAuthTab('login')">Login</button>
+                    <button id="tabRegisterBtn" class="auth-tab-btn" type="button" aria-pressed="false" aria-controls="registerTabContent" onclick="switchAuthTab('register')">Register</button>
                 </div>
 
                 <div class="auth-content">
-                    <div id="loginTabContent">
+                    <div id="loginTabContent" role="group" aria-label="Sign in">
                         <h3 style="border:none; padding:0; margin-bottom:20px;">Secure Account Login</h3>
                         <form id="loginForm">
-                            <label><small>Email or Username:</small></label>
+                            <label for="loginEmail"><small>Email or Username:</small></label>
                             <input type="text" id="loginEmail" name="email" autocomplete="username" placeholder="admin@company.com" required>
-                            <label><small>Password:</small></label>
-                            <input type="password" id="loginPassword" placeholder="Password" required>
+                            <label for="loginPassword"><small>Password:</small></label>
+                            <input type="password" id="loginPassword" autocomplete="current-password" placeholder="Password" required>
                             <button type="submit" style="width: 100%; margin-top: 15px;">Sign In</button>
                         </form>
                         <div style="margin-top: 20px; text-align: center;">
@@ -475,14 +519,17 @@
                         </div>
                     </div>
 
-                    <div id="registerTabContent" style="display: none;">
+                    <div id="registerTabContent" role="group" aria-label="Create account" style="display: none;">
                         <h3 style="border:none; padding:0; margin-bottom:20px;">Register New User</h3>
                         <form id="userForm">
-                            <input type="text" id="regName" placeholder="Full Name" required>
+                            <label for="regName"><small>Full Name</small></label>
+                            <input type="text" id="regName" autocomplete="name" placeholder="Full Name" required>
+                            <label for="regEmail"><small>Email address</small></label>
                             <input type="email" id="regEmail" autocomplete="email" placeholder="admin@company.com" required>
-                            <input type="password" id="regPassword" placeholder="Password" required>
+                            <label for="regPassword"><small>Password</small></label>
+                            <input type="password" id="regPassword" autocomplete="new-password" placeholder="Password" required>
                             
-                            <label><small>Your Department:</small></label>
+                            <label for="regDept"><small>Your Department:</small></label>
                             <select id="regDept">
                                 <option value="HR">HR</option>
                                 <option value="Finance">Finance</option>
@@ -495,7 +542,7 @@
                                 <option value="Executive Management">Executive Management</option>
                             </select>
 
-                            <label><small>Role Position (Principle of Least Privilege):</small></label>
+                            <label for="regRole"><small>Role Position (Principle of Least Privilege):</small></label>
                             <select id="regRole">
                                 <option value="STAFF">Staff</option>
                                 <option value="ASSISTANT">Assistant</option>
@@ -522,7 +569,7 @@
         </div>
 
         <div id="dashboardSection" style="display: none;">
-            <div class="stats-container">
+            <div class="stats-container" aria-label="Request summary">
                 <div class="stat-card">
                     <div>Total Requests</div>
                     <div class="stat-number" id="statTotal">0</div>
@@ -569,10 +616,11 @@
             <div class="card" id="requestFormCard">
                 <h3>Submit New Request</h3>
                 <form id="requestForm" enctype="multipart/form-data">
+                    <label for="title"><small>Request title</small></label>
                     <input type="text" id="title" name="title" placeholder="Request Title" required>
                     
                     <div id="targetDeptContainer">
-                        <label><small>Select Target Department for Approval:</small></label>
+                        <label for="targetDepartment"><small>Select Target Department for Approval:</small></label>
                         <select id="targetDepartment" name="targetDepartment">
                             <option value="HR">HR Department</option>
                             <option value="Finance">Finance Department</option>
@@ -589,7 +637,7 @@
                     </label>
                     <p style="color: var(--text-muted); font-size: 13px;">Requests route through the requesting department manager, then the target department manager when different. Important requests also require GM/DGM approval.</p>
 
-                    <label><small>Select Category:</small></label>
+                    <label for="category"><small>Select Category:</small></label>
                     <select id="category" name="category" onchange="renderDynamicFields()">
                         <option value="Purchase">Purchase / Procurement</option>
                         <option value="Leave">Leave Request</option>
@@ -603,19 +651,21 @@
 
                     <div id="dynamicFieldsContainer" class="dynamic-fields"></div>
 
+                    <label for="description"><small>Description:</small></label>
                     <textarea id="description" name="description" placeholder="Description..."></textarea>
                     
-                    <label><small>Attach File / Receipt / Image (Optional):</small></label>
+                    <label for="attachment"><small>Attach File / Receipt / Image (Optional):</small></label>
                     <input type="file" id="attachment" name="attachment" accept="image/jpeg,image/png,image/webp,.pdf,.doc,.docx">
                     <small>Files are stored in Telegram; maximum attachment size is 20 MB.</small>
 
-                    <button type="submit">Submit Request</button>
+                    <button id="requestSubmitButton" type="submit">Submit Request</button>
                 </form>
             </div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 30px;">
                 <h3 style="margin: 0; border: none;">System Requests Overview</h3>
                 <div id="exportDropdownContainer" style="display: none;">
+                    <label class="sr-only" for="exportActionSelect">Export or print requests</label>
                     <select id="exportActionSelect" onchange="handleExportAction(this)" style="margin: 0; padding: 10px 14px; background: #0284c7; color: white; font-weight: 600; border-radius: 8px; cursor: pointer; border: none;">
                         <option value="" disabled selected>📥 Export / Print Options ▼</option>
                         <option value="csv">📊 Export as Audit CSV</option>
@@ -625,14 +675,16 @@
                 </div>
             </div>
 
-            <div class="req-tabs-container" style="margin-top: 15px;">
-                <button id="tabReq_PENDING" class="req-tab-btn active" type="button" onclick="switchRequestTab('PENDING')">⏳ Pending / In-Progress</button>
-                <button id="tabReq_APPROVED" class="req-tab-btn" type="button" onclick="switchRequestTab('APPROVED')">✅ Approved / Completed</button>
-                <button id="tabReq_REJECTED" class="req-tab-btn" type="button" onclick="switchRequestTab('REJECTED')">❌ Rejected</button>
+            <div class="req-tabs-container" style="margin-top: 15px;" role="group" aria-label="Filter requests by status">
+                <button id="tabReq_PENDING" class="req-tab-btn active" type="button" aria-pressed="true" onclick="switchRequestTab('PENDING')">⏳ Pending / In-Progress</button>
+                <button id="tabReq_APPROVED" class="req-tab-btn" type="button" aria-pressed="false" onclick="switchRequestTab('APPROVED')">✅ Approved / Completed</button>
+                <button id="tabReq_REJECTED" class="req-tab-btn" type="button" aria-pressed="false" onclick="switchRequestTab('REJECTED')">❌ Rejected</button>
             </div>
 
             <div class="filter-bar">
-                <input type="text" id="searchKeyword" placeholder="Search keyword..." oninput="filterRequests()">
+                <label class="sr-only" for="searchKeyword">Search requests</label>
+                <input type="search" id="searchKeyword" placeholder="Search keyword..." oninput="filterRequests()">
+                <label class="sr-only" for="filterCategory">Filter requests by category</label>
                 <select id="filterCategory" onchange="filterRequests()">
                     <option value="">All Categories</option>
                     <option value="Purchase">Purchase</option>
@@ -646,7 +698,7 @@
                 </select>
             </div>
 
-            <div id="requestList" style="margin-top: 15px;">Loading...</div>
+            <div id="requestList" style="margin-top: 15px;" role="status" aria-live="polite" aria-busy="true">Loading requests…</div>
         </div>
     </div>
 
@@ -794,13 +846,25 @@
             if (tab === 'login') {
                 if (loginContent) loginContent.style.display = 'block';
                 if (registerContent) registerContent.style.display = 'none';
-                if (loginBtn) loginBtn.classList.add('active');
-                if (registerBtn) registerBtn.classList.remove('active');
+                if (loginBtn) {
+                    loginBtn.classList.add('active');
+                    loginBtn.setAttribute('aria-pressed', 'true');
+                }
+                if (registerBtn) {
+                    registerBtn.classList.remove('active');
+                    registerBtn.setAttribute('aria-pressed', 'false');
+                }
             } else {
                 if (loginContent) loginContent.style.display = 'none';
                 if (registerContent) registerContent.style.display = 'block';
-                if (registerBtn) registerBtn.classList.add('active');
-                if (loginBtn) loginBtn.classList.remove('active');
+                if (registerBtn) {
+                    registerBtn.classList.add('active');
+                    registerBtn.setAttribute('aria-pressed', 'true');
+                }
+                if (loginBtn) {
+                    loginBtn.classList.remove('active');
+                    loginBtn.setAttribute('aria-pressed', 'false');
+                }
             }
         }
 
@@ -1028,9 +1092,11 @@
 
         function switchRequestTab(status) {
             currentRequestTab = status;
-            document.querySelectorAll('.req-tab-btn').forEach(btn => btn.classList.remove('active'));
-            const activeBtn = document.getElementById('tabReq_' + status);
-            if (activeBtn) activeBtn.classList.add('active');
+            document.querySelectorAll('.req-tab-btn').forEach(btn => {
+                const isActive = btn.id === 'tabReq_' + status;
+                btn.classList.toggle('active', isActive);
+                btn.setAttribute('aria-pressed', String(isActive));
+            });
             filterRequests();
         }
 
@@ -1043,28 +1109,28 @@
             container.innerHTML = '';
 
             if (cat === 'Purchase') {
-                container.innerHTML = '<label><small>Estimated Amount (MMK):</small></label>' +
-                    '<div class="amount-input-wrapper"><input type="number" id="dyn_amount" placeholder="e.g. 500,000 MMK" required>' +
+                container.innerHTML = '<label for="dyn_amount"><small>Estimated Amount (MMK):</small></label>' +
+                    '<div class="amount-input-wrapper"><input type="number" id="dyn_amount" min="0.01" step="0.01" placeholder="e.g. 500,000 MMK" required>' +
                     '<span class="amount-input-suffix" aria-hidden="true">MMK</span></div>' +
-                    '<label><small>Quantity / Items:</small></label>' +
+                    '<label for="dyn_quantity"><small>Quantity / Items:</small></label>' +
                     '<input type="text" id="dyn_quantity" placeholder="e.g. 2 Laptops" required>';
             } else if (cat === 'Finance' || cat === 'Withdrawal') {
-                container.innerHTML = '<label><small>Requested Amount (MMK):</small></label>' +
+                container.innerHTML = '<label for="dyn_amount"><small>Requested Amount (MMK):</small></label>' +
                     '<div class="amount-input-wrapper"><input type="number" id="dyn_amount" min="0.01" step="0.01" placeholder="Enter amount" required>' +
                     '<span class="amount-input-suffix" aria-hidden="true">MMK</span></div>';
             } else if (cat === 'Leave') {
-                container.innerHTML = '<label><small>Leave Type:</small></label>' +
+                container.innerHTML = '<label for="dyn_leaveType"><small>Leave Type:</small></label>' +
                     '<select id="dyn_leaveType">' +
                         '<option value="Casual">Casual Leave</option>' +
                         '<option value="Medical">Medical Leave</option>' +
                         '<option value="Annual">Annual Leave</option>' +
                     '</select>' +
-                    '<label><small>Number of Days:</small></label>' +
-                    '<input type="number" id="dyn_days" placeholder="e.g. 3" required>';
+                    '<label for="dyn_days"><small>Number of Days:</small></label>' +
+                    '<input type="number" id="dyn_days" min="1" step="1" placeholder="e.g. 3" required>';
             } else if (cat === 'Maintenance') {
-                container.innerHTML = '<label><small>Equipment / Location:</small></label>' +
+                container.innerHTML = '<label for="dyn_location"><small>Equipment / Location:</small></label>' +
                     '<input type="text" id="dyn_location" placeholder="e.g. Server Room AC" required>' +
-                    '<label><small>Urgency Level:</small></label>' +
+                    '<label for="dyn_urgency"><small>Urgency Level:</small></label>' +
                     '<select id="dyn_urgency">' +
                         '<option value="Low">Low</option>' +
                         '<option value="Medium">Medium</option>' +
@@ -1139,6 +1205,11 @@
             } else {
                 container.innerHTML = '<small style="color:#94a3b8;">No additional fields required for this category.</small>';
             }
+            const today = new Date();
+            today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+            container.querySelectorAll('input[type="date"]').forEach(input => {
+                input.min = today.toISOString().slice(0, 10);
+            });
         }
 
         function toggleConditionalFields(selectId, fieldsId, showValue) {
@@ -1378,6 +1449,11 @@
 
         async function submitMfaCode() {
             const code = document.getElementById('mfaCodeInput').value.trim();
+            if (!/^\d{6}$/.test(code)) {
+                alert('Enter the 6-digit verification code.');
+                document.getElementById('mfaCodeInput').focus();
+                return;
+            }
             try {
                 const res = await fetch('/api/verify-mfa', {
                     method: 'POST',
@@ -1582,6 +1658,8 @@
         async function filterRequests() {
             if (!currentUser) return;
             const loadId = ++requestLoadId;
+            const listDiv = document.getElementById('requestList');
+            if (listDiv) listDiv.setAttribute('aria-busy', 'true');
             const params = new URLSearchParams({ status: currentRequestTab });
             const search = document.getElementById('searchKeyword')?.value || '';
             const category = document.getElementById('filterCategory')?.value || '';
@@ -1600,11 +1678,12 @@
                 }
                 updateAnalytics(data.counts);
                 renderRequests(data.requests);
+                if (listDiv) listDiv.setAttribute('aria-busy', 'false');
             } catch(err) {
                 console.error(err);
                 if (loadId === requestLoadId) {
-                    const listDiv = document.getElementById('requestList');
                     if (listDiv) {
+                        listDiv.setAttribute('aria-busy', 'false');
                         listDiv.innerHTML = '';
                         const message = document.createElement('p');
                         message.style.cssText = 'color: var(--danger); padding: 25px; text-align: center;';
@@ -1747,6 +1826,7 @@
 
         async function updateStatus(id, status) {
             const remarks = prompt(`Enter optional audit remarks for ${status}:`);
+            if (remarks === null) return;
             try {
                 const res = await fetch(`/api/requests/${id}/approval`, {
                     method: 'PATCH',
@@ -1865,6 +1945,9 @@
                     e.preventDefault();
                     const email = document.getElementById('loginEmail').value.trim();
                     const password = document.getElementById('loginPassword').value;
+                    const submitButton = loginForm.querySelector('button[type="submit"]');
+                    submitButton.disabled = true;
+                    submitButton.textContent = 'Signing in…';
 
                     try {
                         const res = await fetch('/api/login', {
@@ -1877,6 +1960,7 @@
                             if (data.requiresMfa) {
                                 pendingMfaEmail = data.email;
                                 document.getElementById('mfaModal').style.display = 'flex';
+                                document.getElementById('mfaCodeInput').focus();
                             } else if (data.user) {
                                 persistSession(data.user, data.token);
                                 updateUI();
@@ -1888,6 +1972,9 @@
                         }
                     } catch (err) {
                         alert("Network Error: " + err.message);
+                    } finally {
+                        submitButton.disabled = false;
+                        submitButton.textContent = 'Sign In';
                     }
                 });
             }
@@ -1896,6 +1983,9 @@
             if (requestForm) {
                 requestForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
+                    const submitButton = document.getElementById('requestSubmitButton');
+                    submitButton.disabled = true;
+                    submitButton.textContent = 'Submitting…';
                     
                     const formData = new FormData();
                     formData.append('title', document.getElementById('title').value);
@@ -1969,15 +2059,19 @@
                             body: formData
                         });
                         if (res.ok) {
-                            alert("Request submitted successfully into Approval Workflow!");
+                            alert("Request submitted successfully into the approval workflow.");
                             requestForm.reset();
                             renderDynamicFields();
                             loadRequests();
                         } else {
-                            alert("Error submitting request");
+                            const data = await res.json();
+                            alert("Request submission failed: " + (data.error || "Please try again."));
                         }
                     } catch(err) {
                         alert("Submit Error: " + err.message);
+                    } finally {
+                        submitButton.disabled = false;
+                        submitButton.textContent = 'Submit Request';
                     }
                 });
             }
