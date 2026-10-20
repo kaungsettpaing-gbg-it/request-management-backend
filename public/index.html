@@ -357,6 +357,37 @@
         .stat-card.rejected { border-left-color: var(--danger); }
         .stat-number { font-size: 28px; font-weight: bold; margin-top: 8px; color: #fff; }
 
+        .monthly-report-panel { border-top: 3px solid #31a0a8; }
+        .monthly-report-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+        .monthly-report-heading h3 { margin-bottom: 4px; border: 0; }
+        .monthly-report-heading p { margin: 0; color: var(--text-muted); font-size: 13px; }
+        .monthly-report-controls { display: flex; align-items: flex-end; gap: 10px; margin: 18px 0; }
+        .monthly-report-controls label { flex: 1; min-width: 130px; color: var(--text-muted); font-size: 12px; }
+        .monthly-report-controls select { margin: 6px 0 0; }
+        .monthly-report-controls button { min-height: 42px; white-space: nowrap; }
+        .monthly-report-button { background: #176b72; }
+        .monthly-report-button:hover { background: #12575d; }
+        .monthly-report-download { background: #b7791f; }
+        .monthly-report-download:hover { background: #925f19; }
+        .monthly-report-status { min-height: 20px; color: var(--text-muted); font-size: 12px; }
+        .monthly-report-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0 20px; }
+        .monthly-report-metric { min-width: 0; padding: 16px; border: 1px solid rgba(148,163,184,0.2); border-radius: 8px; background: rgba(4,13,27,0.55); }
+        .monthly-report-metric-label { color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .monthly-report-metric-value { overflow-wrap: anywhere; margin-top: 8px; color: #f8fafc; font-size: 21px; font-weight: 700; }
+        .monthly-report-breakdowns { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr); gap: 20px; }
+        .monthly-report-breakdowns h4 { margin: 0 0 14px; color: #dbe7ef; font-size: 13px; }
+        .monthly-report-department { display: grid; grid-template-columns: minmax(88px, 130px) minmax(80px, 1fr) auto; align-items: center; gap: 10px; margin: 12px 0; font-size: 12px; }
+        .monthly-report-department-name { overflow: hidden; color: #dbe7ef; text-overflow: ellipsis; white-space: nowrap; }
+        .monthly-report-bar { height: 8px; overflow: hidden; border-radius: 5px; background: rgba(148,163,184,0.18); }
+        .monthly-report-bar > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #20a5a0, #71c5ac); }
+        .monthly-report-amount { color: #cbd5e1; white-space: nowrap; }
+        .monthly-report-status-row { display: grid; grid-template-columns: 78px 1fr 32px; align-items: center; gap: 10px; margin: 12px 0; font-size: 12px; }
+        .monthly-report-status-bar { height: 8px; overflow: hidden; border-radius: 5px; background: rgba(148,163,184,0.18); }
+        .monthly-report-status-bar > span { display: block; height: 100%; border-radius: inherit; }
+        .monthly-report-status-bar .approved { background: #36a875; }
+        .monthly-report-status-bar .rejected { background: #de6a64; }
+        .monthly-report-status-bar .pending { background: #d5a33c; }
+
         .request-item { background: #0f172a; padding: 20px; margin-top: 15px; border-radius: 10px; border: 1px solid var(--border-color); border-left: 5px solid var(--primary); display: flex; flex-direction: column; gap: 12px; }
         .request-header { display: flex; justify-content: space-between; align-items: flex-start; }
 
@@ -406,6 +437,9 @@
             #userManagementCard .telegram-status-badge { margin: 0; }
             #dashboardSection > div[style*="justify-content: space-between"] { align-items: flex-start !important; flex-direction: column; gap: 12px; }
             #exportActionSelect { max-width: 100%; }
+            .monthly-report-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .monthly-report-breakdowns { grid-template-columns: 1fr; gap: 18px; }
+            .monthly-report-heading { flex-direction: column; }
         }
         @media (max-width: 520px) {
             .container { padding: 16px; margin: 8px auto; border-radius: 12px; }
@@ -423,6 +457,12 @@
             #requestFormCard .dynamic-fields { padding: 12px; }
             .feedback-launcher { right: 16px; bottom: 16px; }
             .feedback-dialog { padding: 24px 20px; }
+            .monthly-report-controls { align-items: stretch; flex-wrap: wrap; }
+            .monthly-report-controls label { min-width: calc(50% - 6px); }
+            .monthly-report-controls button { flex: 1; }
+            .monthly-report-metric { padding: 12px; }
+            .monthly-report-metric-value { font-size: 18px; }
+            .monthly-report-department { grid-template-columns: 82px minmax(45px, 1fr) auto; gap: 7px; }
         }
 
         @media print {
@@ -612,6 +652,37 @@
                     </table>
                 </div>
             </div>
+
+            <section class="card monthly-report-panel" id="monthlyReportPanel" style="display: none;" aria-labelledby="monthlyReportHeading">
+                <div class="monthly-report-heading">
+                    <div>
+                        <h3 id="monthlyReportHeading">Monthly Reports</h3>
+                        <p>Executive activity and approved spending by department.</p>
+                    </div>
+                </div>
+                <div class="monthly-report-controls" id="monthlyReportControls">
+                    <label for="monthlyReportMonth">Month
+                        <select id="monthlyReportMonth"></select>
+                    </label>
+                    <label for="monthlyReportYear">Year
+                        <select id="monthlyReportYear"></select>
+                    </label>
+                    <button id="monthlyReportRefresh" class="monthly-report-button" type="button">↻ Refresh</button>
+                    <button id="monthlyReportDownload" class="monthly-report-download" type="button">↓ Download PDF</button>
+                </div>
+                <div id="monthlyReportStatus" class="monthly-report-status" role="status" aria-live="polite"></div>
+                <div id="monthlyReportMetrics" class="monthly-report-metrics" aria-live="polite"></div>
+                <div class="monthly-report-breakdowns">
+                    <div>
+                        <h4>Approved Spend by Department</h4>
+                        <div id="monthlyReportDepartments"></div>
+                    </div>
+                    <div>
+                        <h4>Request Status</h4>
+                        <div id="monthlyReportStatuses"></div>
+                    </div>
+                </div>
+            </section>
 
             <div class="card" id="requestFormCard">
                 <h3>Submit New Request</h3>
@@ -1233,6 +1304,130 @@
             })[char]);
         }
 
+        function getSelectedMonthlyReportKey() {
+            const month = document.getElementById('monthlyReportMonth')?.value;
+            const year = document.getElementById('monthlyReportYear')?.value;
+            return month && year ? `${year}-${month}` : new Date().toISOString().slice(0, 7);
+        }
+
+        function formatReportCurrency(amount) {
+            return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(amount) || 0)} MMK`;
+        }
+
+        function initializeMonthlyReportControls() {
+            const panel = document.getElementById('monthlyReportPanel');
+            if (!panel) return;
+            if (panel.dataset.initialized === 'true') {
+                void loadMonthlyAnalytics();
+                return;
+            }
+            const monthSelect = document.getElementById('monthlyReportMonth');
+            const yearSelect = document.getElementById('monthlyReportYear');
+            const currentDate = new Date();
+            const currentYear = currentDate.getFullYear();
+            monthSelect.innerHTML = Array.from({ length: 12 }, (_, index) => {
+                const monthNumber = index + 1;
+                const monthLabel = new Date(Date.UTC(currentYear, index, 1)).toLocaleDateString('en-US', {
+                    month: 'long', timeZone: 'UTC'
+                });
+                return `<option value="${String(monthNumber).padStart(2, '0')}">${monthLabel}</option>`;
+            }).join('');
+            yearSelect.innerHTML = Array.from({ length: currentYear - 1997 }, (_, index) => currentYear + 1 - index)
+                .map(year => `<option value="${year}">${year}</option>`)
+                .join('');
+            monthSelect.value = String(currentDate.getMonth() + 1).padStart(2, '0');
+            yearSelect.value = String(currentYear);
+            monthSelect.addEventListener('change', loadMonthlyAnalytics);
+            yearSelect.addEventListener('change', loadMonthlyAnalytics);
+            document.getElementById('monthlyReportRefresh').addEventListener('click', loadMonthlyAnalytics);
+            document.getElementById('monthlyReportDownload').addEventListener('click', downloadMonthlyReportPdf);
+            panel.dataset.initialized = 'true';
+            void loadMonthlyAnalytics();
+        }
+
+        async function loadMonthlyAnalytics() {
+            if (!sessionToken || currentUser?.role !== 'SUPER_ADMIN') return;
+            const monthKey = getSelectedMonthlyReportKey();
+            const status = document.getElementById('monthlyReportStatus');
+            status.textContent = `Loading ${monthKey} report…`;
+            try {
+                const response = await fetch(`/api/reports/monthly/analytics?month=${encodeURIComponent(monthKey)}`, {
+                    headers: { Authorization: `Bearer ${sessionToken}` }
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Unable to load monthly analytics.');
+
+                const { report, analytics } = data;
+                const metrics = [
+                    ['Total Requests', report.totalRequests],
+                    ['Total Approved', report.approvedCount],
+                    ['Approved Spend', formatReportCurrency(analytics.totalSpendAmount)],
+                    ['Top Requesting Department', analytics.topRequestingDepartment]
+                ];
+                document.getElementById('monthlyReportMetrics').innerHTML = metrics.map(([label, value]) =>
+                    `<div class="monthly-report-metric"><div class="monthly-report-metric-label">${escapeHtml(label)}</div>` +
+                    `<div class="monthly-report-metric-value">${escapeHtml(value)}</div></div>`
+                ).join('');
+
+                const departments = analytics.spendingByDepartment.filter(entry => entry.requestCount > 0);
+                const maxSpend = Math.max(...departments.map(entry => entry.spendAmount), 0);
+                document.getElementById('monthlyReportDepartments').innerHTML = departments.length
+                    ? departments.map(entry => {
+                        const width = maxSpend > 0 ? Math.max(3, entry.spendAmount / maxSpend * 100) : 0;
+                        return '<div class="monthly-report-department">' +
+                            `<span class="monthly-report-department-name" title="${escapeHtml(entry.department)}">${escapeHtml(entry.department)}</span>` +
+                            `<div class="monthly-report-bar" aria-label="${escapeHtml(entry.department)} spend"><span style="width:${width}%"></span></div>` +
+                            `<span class="monthly-report-amount">${formatReportCurrency(entry.spendAmount)}</span>` +
+                        '</div>';
+                    }).join('')
+                    : '<p class="monthly-report-status">No requests for this period.</p>';
+
+                const states = [
+                    { label: 'Approved', count: report.approvedCount, className: 'approved' },
+                    { label: 'Rejected', count: report.rejectedCount, className: 'rejected' },
+                    { label: 'Pending', count: report.pendingCount, className: 'pending' }
+                ];
+                document.getElementById('monthlyReportStatuses').innerHTML = states.map(state => {
+                    const width = report.totalRequests > 0 ? state.count / report.totalRequests * 100 : 0;
+                    return '<div class="monthly-report-status-row">' +
+                        `<span>${state.label}</span><div class="monthly-report-status-bar"><span class="${state.className}" style="width:${width}%"></span></div>` +
+                        `<strong>${state.count}</strong></div>`;
+                }).join('');
+                status.textContent = `Report period: ${monthKey} | Top spending department: ${analytics.topSpendingDepartment}`;
+            } catch (error) {
+                status.textContent = error.message;
+                document.getElementById('monthlyReportMetrics').innerHTML = '';
+                document.getElementById('monthlyReportDepartments').innerHTML = '';
+                document.getElementById('monthlyReportStatuses').innerHTML = '';
+            }
+        }
+
+        async function downloadMonthlyReportPdf() {
+            if (!sessionToken || currentUser?.role !== 'SUPER_ADMIN') return;
+            const monthKey = getSelectedMonthlyReportKey();
+            const button = document.getElementById('monthlyReportDownload');
+            button.disabled = true;
+            try {
+                const response = await fetch(`/api/reports/monthly.pdf?month=${encodeURIComponent(monthKey)}`, {
+                    headers: { Authorization: `Bearer ${sessionToken}` }
+                });
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Unable to download the PDF report.');
+                }
+                const url = URL.createObjectURL(await response.blob());
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `monthly-executive-report-${monthKey}.pdf`;
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } catch (error) {
+                document.getElementById('monthlyReportStatus').textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        }
+
         function updateUI() {
             if (currentUser) {
                 document.body.classList.remove('login-screen');
@@ -1300,6 +1495,11 @@
                 const monthlyReportOption = document.getElementById('monthlyReportExportOption');
                 if (monthlyReportOption) {
                     monthlyReportOption.hidden = currentUser.role !== 'SUPER_ADMIN';
+                }
+                const monthlyReportPanel = document.getElementById('monthlyReportPanel');
+                if (monthlyReportPanel) {
+                    monthlyReportPanel.style.display = currentUser.role === 'SUPER_ADMIN' ? 'block' : 'none';
+                    if (currentUser.role === 'SUPER_ADMIN') initializeMonthlyReportControls();
                 }
             } else {
                 document.body.classList.add('login-screen');
@@ -1429,7 +1629,8 @@
                 }
             } else if (val === 'monthly-report') {
                 try {
-                    const response = await fetch('/api/reports/monthly', {
+                    const monthKey = getSelectedMonthlyReportKey();
+                    const response = await fetch(`/api/reports/monthly?month=${encodeURIComponent(monthKey)}`, {
                         headers: { Authorization: 'Bearer ' + sessionToken }
                     });
                     if (!response.ok) {
@@ -1439,7 +1640,7 @@
                     const url = URL.createObjectURL(await response.blob());
                     const link = document.createElement('a');
                     link.href = url;
-                    link.download = `monthly-request-report-${new Date().toISOString().slice(0, 7)}.xlsx`;
+                    link.download = `monthly-request-report-${monthKey}.xlsx`;
                     link.click();
                     URL.revokeObjectURL(url);
                 } catch (error) {

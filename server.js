@@ -10,9 +10,12 @@ const cron = require('node-cron');
 const ExcelJS = require('exceljs');
 const { assertPostgresDatabaseUrl } = require('./lib/database-url');
 const {
+  createMonthlyReportPdf,
   formatMonthlyReportMessages,
+  getMonthlyAnalytics,
   getMonthlyRequestDetails,
   getUtcMonthPeriod,
+  getUtcMonthPeriodFromKey,
   summarizeRequests
 } = require('./lib/monthly-report');
 require('dotenv').config();
@@ -243,6 +246,26 @@ async function sendTelegramMessage(chatId, text, parseMode, timeoutMs = 5000) {
   const data = await response.json();
   if (!response.ok || !data.ok) {
     throw new Error(`Telegram sendMessage failed: ${data.description || response.statusText}`);
+  }
+}
+
+async function sendTelegramDocument(chatId, fileBuffer, fileName, caption) {
+  if (!TELEGRAM_BOT_TOKEN) {
+    throw new Error('TELEGRAM_BOT_TOKEN is not configured.');
+  }
+  const form = new FormData();
+  form.append('chat_id', chatId);
+  form.append('document', new Blob([fileBuffer], { type: 'application/pdf' }), fileName);
+  form.append('caption', caption);
+  form.append('parse_mode', 'HTML');
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
+    method: 'POST',
+    body: form,
+    signal: AbortSignal.timeout(30000)
+  });
+  const result = await response.json();
+  if (!response.ok || !result.ok) {
+    throw new Error(`Telegram sendDocument failed: ${result.description || response.statusText}`);
   }
 }
 
@@ -958,6 +981,7 @@ async function sendMonthlyReportToSuperAdmin(report, requests, { force = false }
     if (!chatId) {
       throw new Error('Set SUPER_ADMIN_TELEGRAM_CHAT_ID or link a Telegram account to the SUPER_ADMIN user.');
     }
+    const pdf = await createMonthlyReportPdf(report, requests);
     const messages = formatMonthlyReportMessages(report, requests);
     for (const [index, message] of messages.entries()) {
       if (index > 0) {
@@ -966,6 +990,13 @@ async function sendMonthlyReportToSuperAdmin(report, requests, { force = false }
       await sendTelegramMessage(chatId, message, 'HTML');
       deliveryCount += 1;
     }
+    await sendTelegramDocument(
+      chatId,
+      pdf,
+      `monthly-executive-report-${report.monthKey}.pdf`,
+      `📎 <b>Executive PDF Report</b> - ${report.monthKey}`
+    );
+    deliveryCount += 1;
     await prisma.monthlyReport.update({
       where: { monthKey: report.monthKey },
       data: { telegramSentAt: new Date(), telegramClaimedAt: null }
@@ -1029,6 +1060,7 @@ async function fetchMonthlyReportRequests(period) {
       status: true,
       createdAt: true,
       updatedAt: true,
+      extraFields: true,
       user: { select: { name: true, department: true, telegramFirstName: true } },
       approvalSteps: {
         select: {
@@ -2558,9 +2590,20 @@ function createMonthlyReportCsv(report, requests) {
   return rows.map(row => row.map(escapeCsvCell).join(',')).join('\r\n');
 }
 
+function getMonthlyReportPeriodFromRequest(req, res) {
+  if (req.query.month === undefined) return getUtcMonthPeriod();
+  try {
+    return getUtcMonthPeriodFromKey(String(req.query.month));
+  } catch {
+    res.status(400).json({ error: 'Month must use the YYYY-MM format.' });
+    return null;
+  }
+}
+
 app.get('/api/reports/monthly.csv', requireAdminAuthentication, async (req, res) => {
   try {
-    const period = getUtcMonthPeriod();
+    const period = getMonthlyReportPeriodFromRequest(req, res);
+    if (!period) return;
     const { report, requests } = await generateMonthlyReport(period);
     res.set({
       'Content-Type': 'text/csv; charset=utf-8',
@@ -2575,9 +2618,43 @@ app.get('/api/reports/monthly.csv', requireAdminAuthentication, async (req, res)
   }
 });
 
+app.get('/api/reports/monthly/analytics', requireSuperAdminAuthentication, async (req, res) => {
+  try {
+    const period = getMonthlyReportPeriodFromRequest(req, res);
+    if (!period) return;
+    const { report, requests } = await generateMonthlyReport(period);
+    res.set('Cache-Control', 'private, no-store');
+    return res.json({ report, analytics: getMonthlyAnalytics(requests) });
+  } catch (error) {
+    console.error('Monthly report analytics failed:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to load monthly report analytics.' });
+  }
+});
+
+app.get('/api/reports/monthly.pdf', requireSuperAdminAuthentication, async (req, res) => {
+  try {
+    const period = getMonthlyReportPeriodFromRequest(req, res);
+    if (!period) return;
+    const { report, requests } = await generateMonthlyReport(period);
+    const file = await createMonthlyReportPdf(report, requests);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="monthly-executive-report-${report.monthKey}.pdf"`,
+      'Cache-Control': 'private, no-store'
+    });
+    return res.send(file);
+  } catch (error) {
+    console.error('Monthly PDF report export failed:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to generate the monthly PDF report.' });
+  }
+});
+
 app.get('/api/reports/monthly', requireSuperAdminAuthentication, async (req, res) => {
   try {
-    const period = getUtcMonthPeriod();
+    const period = getMonthlyReportPeriodFromRequest(req, res);
+    if (!period) return;
     const { report, requests } = await generateMonthlyReport(period);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Request Management System';
@@ -2651,7 +2728,7 @@ app.post('/api/reports/trigger-monthly', requireAdminAuthentication, async (req,
       approvedCount: generatedReport.approvedCount,
       rejectedCount: generatedReport.rejectedCount,
       pendingCount: generatedReport.pendingCount,
-      downloadUrl: '/api/reports/monthly.csv'
+      downloadUrl: `/api/reports/monthly.pdf?month=${encodeURIComponent(generatedReport.monthKey)}`
     };
 
     try {

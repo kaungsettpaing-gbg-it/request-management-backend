@@ -1,9 +1,12 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+  createMonthlyReportPdf,
   formatMonthlyReportMessages,
+  getMonthlyAnalytics,
   getMonthlyRequestDetails,
   getUtcMonthPeriod,
+  getUtcMonthPeriodFromKey,
   summarizeRequests
 } = require('../lib/monthly-report');
 const { createMonthlyReportCsv } = require('../server');
@@ -14,6 +17,13 @@ test('monthly periods use UTC calendar-month boundaries, including year rollover
   assert.equal(period.monthKey, '2025-12');
   assert.equal(period.start.toISOString(), '2025-12-01T00:00:00.000Z');
   assert.equal(period.end.toISOString(), '2026-01-01T00:00:00.000Z');
+});
+
+test('selected report months validate and use UTC calendar boundaries', () => {
+  const period = getUtcMonthPeriodFromKey('2026-02');
+  assert.equal(period.start.toISOString(), '2026-02-01T00:00:00.000Z');
+  assert.equal(period.end.toISOString(), '2026-03-01T00:00:00.000Z');
+  assert.throws(() => getUtcMonthPeriodFromKey('2026-13'), /YYYY-MM/);
 });
 
 test('monthly report summaries count all three request statuses', () => {
@@ -35,6 +45,49 @@ test('monthly report summaries count all three request statuses', () => {
     approvedCount: 0,
     rejectedCount: 0
   });
+});
+
+test('monthly analytics totals approved spend and ranks departments', () => {
+  assert.deepEqual(getMonthlyAnalytics([
+    { status: 'APPROVED', extraFields: JSON.stringify({ amount: '2500' }), user: { department: 'IT' } },
+    { status: 'APPROVED', extraFields: { amount: '7500' }, user: { department: 'Finance' } },
+    { status: 'PENDING', extraFields: { amount: '50000' }, user: { department: 'IT' } },
+    { status: 'REJECTED', extraFields: { amount: '90000' }, user: { department: 'HR' } }
+  ]), {
+    totalSpendAmount: 10000,
+    topRequestingDepartment: 'IT',
+    topSpendingDepartment: 'Finance',
+    spendingByDepartment: [
+      { department: 'Finance', requestCount: 1, spendAmount: 7500 },
+      { department: 'IT', requestCount: 2, spendAmount: 2500 },
+      { department: 'HR', requestCount: 1, spendAmount: 0 }
+    ]
+  });
+});
+
+test('monthly executive PDF generator returns a PDF document', async () => {
+  const period = getUtcMonthPeriodFromKey('2026-10');
+  const pdf = await createMonthlyReportPdf({
+    monthKey: period.monthKey,
+    periodStart: period.start,
+    periodEnd: period.end,
+    generatedAt: new Date('2026-10-20T09:00:00.000Z'),
+    totalRequests: 1,
+    approvedCount: 1,
+    rejectedCount: 0,
+    pendingCount: 0
+  }, [{
+    id: 25,
+    title: 'Office equipment refresh',
+    status: 'APPROVED',
+    createdAt: new Date('2026-10-05T09:00:00.000Z'),
+    extraFields: JSON.stringify({ amount: 125000 }),
+    user: { name: 'Jordan User', department: 'Operations' },
+    approvalSteps: []
+  }]);
+
+  assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
+  assert.ok(pdf.length > 1000);
 });
 
 test('monthly report CSV includes summary and dashboard request columns', () => {
@@ -174,6 +227,7 @@ test('monthly Telegram summary includes detailed entries and emits bounded HTML 
     status: 'APPROVED',
     createdAt: new Date('2026-10-05T09:30:00.000Z'),
     updatedAt: new Date('2026-10-05T12:00:00.000Z'),
+    extraFields: JSON.stringify({ amount: '1200' }),
     user: { name: 'User A', department: 'IT' },
     approvalSteps: [{
       status: 'APPROVED',
@@ -183,8 +237,12 @@ test('monthly Telegram summary includes detailed entries and emits bounded HTML 
   }]);
 
   assert.equal(messages.length, 1);
-  assert.match(messages[0], /📊 <b>Monthly Request Report \(Summary\) — 2026-09<\/b>/);
+  assert.match(messages[0], /📊 <b>Monthly Executive Report - September 2026<\/b>/);
+  assert.match(messages[0], /💰 <b>Total Requests &amp; Budget Summary<\/b>/);
   assert.match(messages[0], /• <b>Total Requests:<\/b> 12/);
+  assert.match(messages[0], /• <b>Approved Spend:<\/b> 1,200 MMK/);
+  assert.match(messages[0], /🏢 <b>Top Spending Department:<\/b> IT \(1,200 MMK\)/);
+  assert.match(messages[0], /📎 <b>PDF report:<\/b> Executive PDF attached below\./);
   assert.match(messages[0], /• <b>Approved:<\/b> ✅ 7/);
   assert.match(messages[0], /• <b>Rejected:<\/b> ❌ 2/);
   assert.match(messages[0], /• <b>Pending:<\/b> ⏳ 3/);
