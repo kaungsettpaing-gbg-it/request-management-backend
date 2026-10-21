@@ -10,8 +10,7 @@ console.log("Hello from Functions!");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, apikey, apiKey, content-type, x-client-info",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 // This endpoint uses 'publishable' | 'secret' access, apiKey is required.
@@ -44,7 +43,7 @@ const supabaseHandler = withSupabase(
 export default {
   async fetch(req: Request): Promise<Response> {
     if (req.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      return new Response(null, { status: 200, headers: corsHeaders });
     }
 
     if (req.method === "GET") {
