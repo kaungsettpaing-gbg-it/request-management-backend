@@ -11,7 +11,11 @@ const {
   getUtcMonthPeriodFromKey,
   summarizeRequests
 } = require('../lib/monthly-report');
-const { createMonthlyReportCsv } = require('../server');
+const {
+  canAccessMonthlyReports,
+  createMonthlyAuditCsv,
+  createMonthlyReportCsv
+} = require('../server');
 
 test('monthly periods use UTC calendar-month boundaries, including year rollover', () => {
   const period = getUtcMonthPeriod(new Date('2026-01-01T00:00:00.000Z'), -1);
@@ -118,6 +122,35 @@ test('monthly report CSV includes summary and dashboard request columns', () => 
   assert.match(csv, /^"Report Month","2026-10"/);
   assert.match(csv, /"Request ID","Title","Requested By","Department","Status","Approved\/Rejected By","Created Date","Resolved Date"/);
   assert.match(csv, /"12","Laptop, replacement","User A","IT","✅ Approved","Manager A","2026-10-05T09:30:00\.000Z","2026-10-05T12:00:00\.000Z"/);
+});
+
+test('monthly report access is granted only to approved reporting roles', () => {
+  for (const role of ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'SUPERVISOR']) {
+    assert.equal(canAccessMonthlyReports(role), true);
+  }
+  for (const role of ['STAFF', 'ASSISTANT', 'HR', 'GM', null]) {
+    assert.equal(canAccessMonthlyReports(role), false);
+  }
+});
+
+test('monthly audit CSV exports raw audit log rows with formula-safe values', () => {
+  const csv = createMonthlyAuditCsv([{
+    id: 42,
+    createdAt: new Date('2026-10-05T12:00:00.000Z'),
+    action: 'APPROVED',
+    remarks: '=approved',
+    userId: 7,
+    user: { name: 'Manager A' },
+    requestId: 12,
+    request: {
+      title: 'Laptop request',
+      status: 'APPROVED',
+      user: { name: 'User A', department: 'IT' }
+    }
+  }]);
+
+  assert.match(csv, /^"Audit ID","Date & Time","Action","Remarks"/);
+  assert.match(csv, /"42","2026-10-05T12:00:00\.000Z","APPROVED","'=approved","7","Manager A","12","Laptop request","APPROVED","User A","IT"/);
 });
 
 test('monthly Excel report includes styled executive KPIs and a complete filtered request log', async () => {

@@ -190,6 +190,7 @@ const ADMIN_ASSIGNABLE_ROLES = [
   ...SELF_ASSIGNABLE_ROLES, 'MANAGER', 'DGM', 'GM', 'ADMIN'
 ];
 const DEPARTMENT_APPROVER_ROLES = ['MANAGER', 'SUPERVISOR'];
+const MONTHLY_REPORT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'SUPERVISOR'];
 
 function deriveTelegramWebhookSecret(jwtSecretValue) {
   if (typeof jwtSecretValue !== 'string' || !jwtSecretValue) return null;
@@ -2404,6 +2405,29 @@ async function requireAdminAuthentication(req, res, next) {
   });
 }
 
+async function requireMonthlyReportAuthentication(req, res, next) {
+  return requireApprovalAuthentication(req, res, async () => {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.approverId },
+        select: { role: true }
+      });
+      if (!user) {
+        return res.status(401).json({ error: 'The account for this session no longer exists.' });
+      }
+      if (!canAccessMonthlyReports(user.role)) {
+        return res.status(403).json({ error: 'Monthly report access is required.' });
+      }
+      req.monthlyReportRole = user.role;
+      return next();
+    } catch (error) {
+      console.error('Monthly Report Access Check Error:', error);
+      res.locals.systemError = error;
+      return res.status(500).json({ error: 'Unable to verify monthly report access.' });
+    }
+  });
+}
+
 async function requireSuperAdminAuthentication(req, res, next) {
   return requireAdminAuthentication(req, res, () => {
     if (req.adminRole !== 'SUPER_ADMIN') {
@@ -2592,6 +2616,30 @@ function createMonthlyReportCsv(report, requests) {
   return rows.map(row => row.map(escapeCsvCell).join(',')).join('\r\n');
 }
 
+function createMonthlyAuditCsv(auditLogs) {
+  const rows = [
+    ['Audit ID', 'Date & Time', 'Action', 'Remarks', 'Actor ID', 'Actor Name', 'Request ID', 'Request Title', 'Request Status', 'Requester Name', 'Requester Department'],
+    ...auditLogs.map(log => [
+      log.id,
+      log.createdAt?.toISOString() || '',
+      log.action,
+      log.remarks || '',
+      log.userId,
+      log.user?.name || '',
+      log.requestId,
+      log.request?.title || '',
+      log.request?.status || '',
+      log.request?.user?.name || log.request?.user?.telegramFirstName || '',
+      log.request?.user?.department || ''
+    ])
+  ];
+  return rows.map(row => row.map(escapeCsvCell).join(',')).join('\r\n');
+}
+
+function canAccessMonthlyReports(role) {
+  return MONTHLY_REPORT_ROLES.includes(role);
+}
+
 function getMonthlyReportPeriodFromRequest(req, res) {
   if (req.query.month === undefined) return getUtcMonthPeriod();
   try {
@@ -2602,7 +2650,7 @@ function getMonthlyReportPeriodFromRequest(req, res) {
   }
 }
 
-app.get('/api/reports/monthly.csv', requireAdminAuthentication, async (req, res) => {
+app.get('/api/reports/monthly.csv', requireMonthlyReportAuthentication, async (req, res) => {
   try {
     const period = getMonthlyReportPeriodFromRequest(req, res);
     if (!period) return;
@@ -2620,7 +2668,7 @@ app.get('/api/reports/monthly.csv', requireAdminAuthentication, async (req, res)
   }
 });
 
-app.get('/api/reports/monthly/analytics', requireSuperAdminAuthentication, async (req, res) => {
+app.get('/api/reports/monthly/analytics', requireMonthlyReportAuthentication, async (req, res) => {
   try {
     const period = getMonthlyReportPeriodFromRequest(req, res);
     if (!period) return;
@@ -2634,7 +2682,7 @@ app.get('/api/reports/monthly/analytics', requireSuperAdminAuthentication, async
   }
 });
 
-app.get('/api/reports/monthly.pdf', requireSuperAdminAuthentication, async (req, res) => {
+app.get('/api/reports/monthly.pdf', requireMonthlyReportAuthentication, async (req, res) => {
   try {
     const period = getMonthlyReportPeriodFromRequest(req, res);
     if (!period) return;
@@ -2653,7 +2701,7 @@ app.get('/api/reports/monthly.pdf', requireSuperAdminAuthentication, async (req,
   }
 });
 
-app.get('/api/reports/monthly', requireSuperAdminAuthentication, async (req, res) => {
+app.get('/api/reports/monthly', requireMonthlyReportAuthentication, async (req, res) => {
   try {
     const period = getMonthlyReportPeriodFromRequest(req, res);
     if (!period) return;
@@ -2669,6 +2717,40 @@ app.get('/api/reports/monthly', requireSuperAdminAuthentication, async (req, res
     console.error('Monthly report export failed:', error);
     res.locals.systemError = error;
     return res.status(500).json({ error: 'Unable to generate the monthly report.' });
+  }
+});
+
+app.get('/api/reports/monthly/audit.csv', requireMonthlyReportAuthentication, async (req, res) => {
+  try {
+    const period = getMonthlyReportPeriodFromRequest(req, res);
+    if (!period) return;
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        createdAt: { gte: period.start, lt: period.end }
+      },
+      include: {
+        user: { select: { name: true } },
+        request: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            user: { select: { name: true, telegramFirstName: true, department: true } }
+          }
+        }
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+    });
+    res.set({
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="monthly-audit-log-${period.monthKey}.csv"`,
+      'Cache-Control': 'private, no-store'
+    });
+    return res.send(createMonthlyAuditCsv(auditLogs));
+  } catch (error) {
+    console.error('Monthly audit CSV export failed:', error);
+    res.locals.systemError = error;
+    return res.status(500).json({ error: 'Unable to generate the monthly audit CSV.' });
   }
 });
 
@@ -2835,6 +2917,8 @@ module.exports = {
   deriveTelegramWebhookSecret,
   resolveTelegramWebhookUrl,
   createMonthlyReportCsv,
+  createMonthlyAuditCsv,
+  canAccessMonthlyReports,
   getRequestAmount,
   formatRequestNotification,
   formatRequestStatusHeader,

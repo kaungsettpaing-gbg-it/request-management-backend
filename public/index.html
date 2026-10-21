@@ -669,6 +669,8 @@
                     </label>
                     <button id="monthlyReportRefresh" class="monthly-report-button" type="button">↻ Refresh</button>
                     <button id="monthlyReportDownload" class="monthly-report-download" type="button">↓ Download PDF</button>
+                    <button id="monthlyReportExcelDownload" class="monthly-report-download" type="button">📊 Download Monthly Report (Excel)</button>
+                    <button id="monthlyReportAuditCsvDownload" class="monthly-report-download" type="button">📑 Export as Audit CSV</button>
                 </div>
                 <div id="monthlyReportStatus" class="monthly-report-status" role="status" aria-live="polite"></div>
                 <div id="monthlyReportMetrics" class="monthly-report-metrics" aria-live="polite"></div>
@@ -1310,6 +1312,10 @@
             return month && year ? `${year}-${month}` : new Date().toISOString().slice(0, 7);
         }
 
+        function hasMonthlyReportAccess() {
+            return ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'SUPERVISOR'].includes(currentUser?.role);
+        }
+
         function formatReportCurrency(amount) {
             return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(amount) || 0)} MMK`;
         }
@@ -1341,12 +1347,14 @@
             yearSelect.addEventListener('change', loadMonthlyAnalytics);
             document.getElementById('monthlyReportRefresh').addEventListener('click', loadMonthlyAnalytics);
             document.getElementById('monthlyReportDownload').addEventListener('click', downloadMonthlyReportPdf);
+            document.getElementById('monthlyReportExcelDownload').addEventListener('click', downloadMonthlyReportExcel);
+            document.getElementById('monthlyReportAuditCsvDownload').addEventListener('click', downloadMonthlyAuditCsv);
             panel.dataset.initialized = 'true';
             void loadMonthlyAnalytics();
         }
 
         async function loadMonthlyAnalytics() {
-            if (!sessionToken || currentUser?.role !== 'SUPER_ADMIN') return;
+            if (!sessionToken || !hasMonthlyReportAccess()) return;
             const monthKey = getSelectedMonthlyReportKey();
             const status = document.getElementById('monthlyReportStatus');
             status.textContent = `Loading ${monthKey} report…`;
@@ -1403,7 +1411,7 @@
         }
 
         async function downloadMonthlyReportPdf() {
-            if (!sessionToken || currentUser?.role !== 'SUPER_ADMIN') return;
+            if (!sessionToken || !hasMonthlyReportAccess()) return;
             const monthKey = getSelectedMonthlyReportKey();
             const button = document.getElementById('monthlyReportDownload');
             button.disabled = true;
@@ -1419,6 +1427,49 @@
                 const link = document.createElement('a');
                 link.href = url;
                 link.download = `monthly-executive-report-${monthKey}.pdf`;
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } catch (error) {
+                document.getElementById('monthlyReportStatus').textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        async function downloadMonthlyReportExcel() {
+            await downloadMonthlyReportFile(
+                '/api/reports/monthly',
+                'monthly-request-report',
+                'xlsx',
+                document.getElementById('monthlyReportExcelDownload')
+            );
+        }
+
+        async function downloadMonthlyAuditCsv() {
+            await downloadMonthlyReportFile(
+                '/api/reports/monthly/audit.csv',
+                'monthly-audit-log',
+                'csv',
+                document.getElementById('monthlyReportAuditCsvDownload')
+            );
+        }
+
+        async function downloadMonthlyReportFile(endpoint, filePrefix, extension, button) {
+            if (!sessionToken || !hasMonthlyReportAccess() || !button) return;
+            const monthKey = getSelectedMonthlyReportKey();
+            button.disabled = true;
+            try {
+                const response = await fetch(`${endpoint}?month=${encodeURIComponent(monthKey)}`, {
+                    headers: { Authorization: `Bearer ${sessionToken}` }
+                });
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || `Unable to download the ${extension.toUpperCase()} report.`);
+                }
+                const url = URL.createObjectURL(await response.blob());
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${filePrefix}-${monthKey}.${extension}`;
                 link.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
             } catch (error) {
@@ -1494,12 +1545,12 @@
                 }
                 const monthlyReportOption = document.getElementById('monthlyReportExportOption');
                 if (monthlyReportOption) {
-                    monthlyReportOption.hidden = currentUser.role !== 'SUPER_ADMIN';
+                    monthlyReportOption.hidden = !hasMonthlyReportAccess();
                 }
                 const monthlyReportPanel = document.getElementById('monthlyReportPanel');
                 if (monthlyReportPanel) {
-                    monthlyReportPanel.style.display = currentUser.role === 'SUPER_ADMIN' ? 'block' : 'none';
-                    if (currentUser.role === 'SUPER_ADMIN') initializeMonthlyReportControls();
+                    monthlyReportPanel.style.display = hasMonthlyReportAccess() ? 'block' : 'none';
+                    if (hasMonthlyReportAccess()) initializeMonthlyReportControls();
                 }
             } else {
                 document.body.classList.add('login-screen');
