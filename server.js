@@ -7,9 +7,9 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cron = require('node-cron');
-const ExcelJS = require('exceljs');
 const { assertPostgresDatabaseUrl } = require('./lib/database-url');
 const {
+  createMonthlyReportWorkbook,
   createMonthlyReportPdf,
   formatMonthlyReportMessages,
   getMonthlyAnalytics,
@@ -1057,7 +1057,9 @@ async function fetchMonthlyReportRequests(period) {
     select: {
       id: true,
       title: true,
+      category: true,
       status: true,
+      targetDepartment: true,
       createdAt: true,
       updatedAt: true,
       extraFields: true,
@@ -2656,42 +2658,7 @@ app.get('/api/reports/monthly', requireSuperAdminAuthentication, async (req, res
     const period = getMonthlyReportPeriodFromRequest(req, res);
     if (!period) return;
     const { report, requests } = await generateMonthlyReport(period);
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'Request Management System';
-    workbook.created = new Date();
-
-    const summarySheet = workbook.addWorksheet('Summary');
-    summarySheet.addRows([
-      ['Monthly Request Report', report.monthKey],
-      ['Total Requests', report.totalRequests],
-      ['✅ Approved', report.approvedCount],
-      ['❌ Rejected', report.rejectedCount],
-      ['⏳ Pending', report.pendingCount],
-      ['Generated At (UTC)', report.generatedAt.toISOString()]
-    ]);
-    summarySheet.getColumn(1).width = 28;
-    summarySheet.getColumn(2).width = 32;
-    summarySheet.getRow(1).font = { bold: true, size: 14 };
-    summarySheet.getColumn(2).alignment = { vertical: 'top' };
-
-    const requestsSheet = workbook.addWorksheet('Requests');
-    requestsSheet.columns = [
-      { header: 'Request ID', key: 'requestId', width: 14 },
-      { header: 'Title', key: 'title', width: 40 },
-      { header: 'Requested By', key: 'requestedBy', width: 28 },
-      { header: 'Department', key: 'department', width: 24 },
-      { header: 'Status', key: 'status', width: 20 },
-      { header: 'Approved/Rejected By', key: 'approvedRejectedBy', width: 28 },
-      { header: 'Created Date', key: 'createdDate', width: 22, style: { numFmt: 'mmm dd, yyyy hh:mm' } },
-      { header: 'Resolved Date', key: 'resolvedDate', width: 22, style: { numFmt: 'mmm dd, yyyy hh:mm' } }
-    ];
-    requests.forEach(request => {
-      requestsSheet.addRow(getMonthlyRequestDetails(request));
-    });
-    requestsSheet.getRow(1).font = { bold: true };
-    requestsSheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-    const file = Buffer.from(await workbook.xlsx.writeBuffer());
+    const file = await createMonthlyReportWorkbook(report, requests);
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="monthly-request-report-${report.monthKey}.xlsx"`,

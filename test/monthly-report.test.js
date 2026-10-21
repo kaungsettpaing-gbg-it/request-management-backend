@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const ExcelJS = require('exceljs');
 const {
+  createMonthlyReportWorkbook,
   createMonthlyReportPdf,
   formatMonthlyReportMessages,
   getMonthlyAnalytics,
@@ -116,6 +118,106 @@ test('monthly report CSV includes summary and dashboard request columns', () => 
   assert.match(csv, /^"Report Month","2026-10"/);
   assert.match(csv, /"Request ID","Title","Requested By","Department","Status","Approved\/Rejected By","Created Date","Resolved Date"/);
   assert.match(csv, /"12","Laptop, replacement","User A","IT","✅ Approved","Manager A","2026-10-05T09:30:00\.000Z","2026-10-05T12:00:00\.000Z"/);
+});
+
+test('monthly Excel report includes styled executive KPIs and a complete filtered request log', async () => {
+  const report = {
+    monthKey: '2026-10',
+    totalRequests: 3,
+    approvedCount: 1,
+    rejectedCount: 1,
+    pendingCount: 1,
+    generatedAt: new Date('2026-10-19T08:00:00.000Z')
+  };
+  const requests = [
+    {
+      id: 12,
+      title: 'Laptop replacement',
+      category: 'Equipment',
+      targetDepartment: 'IT',
+      status: 'APPROVED',
+      createdAt: new Date('2026-10-05T09:30:00.000Z'),
+      updatedAt: new Date('2026-10-05T12:00:00.000Z'),
+      extraFields: JSON.stringify({
+        amount: '125000',
+        items: 'Business laptop',
+        quantity: '2',
+        quantityUnit: 'pcs',
+        urgency: 'High'
+      }),
+      user: { name: 'User A', department: 'Finance' },
+      approvalSteps: [{
+        status: 'APPROVED',
+        actedAt: new Date('2026-10-05T12:00:00.000Z'),
+        approvedBy: { name: 'Manager A' }
+      }]
+    },
+    {
+      id: 13,
+      title: 'Travel request',
+      category: 'Travel',
+      targetDepartment: 'Operations',
+      status: 'REJECTED',
+      createdAt: new Date('2026-10-06T09:30:00.000Z'),
+      user: { name: 'User B', department: 'IT' },
+      approvalSteps: []
+    },
+    {
+      id: 14,
+      title: 'Office supplies',
+      category: 'General',
+      targetDepartment: 'Finance',
+      status: 'PENDING',
+      createdAt: new Date('2026-10-07T09:30:00.000Z'),
+      user: { name: 'User C', department: 'IT' },
+      approvalSteps: []
+    }
+  ];
+  const file = await createMonthlyReportWorkbook(report, requests);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(file);
+
+  assert.deepEqual(workbook.worksheets.map(sheet => sheet.name), [
+    'Executive Summary',
+    'Detailed Requests Log'
+  ]);
+  const summary = workbook.getWorksheet('Executive Summary');
+  assert.equal(summary.getCell('A5').value, 3);
+  assert.equal(summary.getCell('A13').value, 125000);
+  assert.equal(summary.getCell('D13').value, 'IT');
+
+  const log = workbook.getWorksheet('Detailed Requests Log');
+  assert.deepEqual(log.getRow(1).values.slice(1), [
+    'Request ID',
+    'Date & Time Submitted',
+    'Requester Name',
+    'Requester Department',
+    'Target Department',
+    'Request Title / Category',
+    'Quantity / Item Details',
+    'Amount / Cost',
+    'Approver Name',
+    'Status',
+    'Approval / Rejection Date'
+  ]);
+  assert.equal(log.getCell('A2').value, 12);
+  assert.equal(log.getCell('B2').value.toISOString(), '2026-10-05T09:30:00.000Z');
+  assert.equal(log.getCell('F2').value, 'Laptop replacement / Equipment');
+  assert.equal(log.getCell('G2').value, 'Business laptop; Qty: 2 pcs; urgency: High');
+  assert.equal(log.getCell('H2').value, 125000);
+  assert.equal(log.getCell('I2').value, 'Manager A');
+  assert.equal(log.getCell('J2').value, 'Approved');
+  assert.equal(log.getCell('K2').value.toISOString(), '2026-10-05T12:00:00.000Z');
+  assert.equal(log.getCell('J3').value, 'Rejected');
+  assert.equal(log.getCell('J4').value, 'Pending');
+  assert.equal(log.getCell('A1').fill.fgColor.argb, 'FF17365D');
+  assert.equal(log.getCell('A1').font.color.argb, 'FFFFFFFF');
+  assert.equal(log.getCell('A2').fill.fgColor.argb, 'FFF3F6F9');
+  assert.equal(log.getCell('A3').fill.fgColor.argb, 'FFFFFFFF');
+  assert.equal(log.getCell('A2').border.bottom.style, 'thin');
+  assert.equal(log.autoFilter, 'A1:K4');
+  assert.equal(log.views[0].ySplit, 1);
+  assert.equal(log.conditionalFormattings[0].rules.length, 3);
 });
 
 test('monthly request mapping includes requester, reviewer, and resolution date', () => {
