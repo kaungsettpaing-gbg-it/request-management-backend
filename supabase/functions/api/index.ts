@@ -1,4 +1,3 @@
-// Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
 
 const BOT_TOKEN = "8535213758:AAEv0He3IUAKAPMtEHq8n7Ts3W8LQF9YSDA";
@@ -8,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-
+// Telegram သို့ စာပြန်ပို့ပေးသော Helper Function
 async function sendTelegramMessage(chatId: number | string, text: string) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
   
@@ -28,12 +27,12 @@ async function sendTelegramMessage(chatId: number | string, text: string) {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  
+  // CORS Preflight Request များအတွက်
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  )
+  // GET Request (Health Check)
   if (req.method === "GET") {
     return Response.json(
       {
@@ -46,25 +45,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
   }
 
-  
+  // Telegram Webhook မှ POST Request များကို လက်ခံခြင်း
   if (req.method === "POST") {
     try {
       const update = await req.json();
       console.log("Incoming Telegram Update:", JSON.stringify(update));
 
-      
+      // ၁။ Message ဝင်လာပါက
       if (update.message) {
         const chatId = update.message.chat.id;
         const text = update.message.text || "";
 
         if (text === "/start") {
-          await sendTelegramMessage(chatId, "မင်္ဂလာပါ! မဂ်လာပါ ပို့ပေးလို့ ကျေးဇူးတင်ပါတယ်။ Bot က အလုပ်လုပ်နေပါပြီ။");
+          await sendTelegramMessage(chatId, "မင်္ဂလာပါ! Bot က အောင်မြင်စွာ အလုပ်လုပ်နေပါပြီ။");
         } else {
           await sendTelegramMessage(chatId, `သင်ပို့လိုက်သော စာတို: "${text}" ကို လက်ခံရရှိပါသည်။`);
         }
       }
 
-      
+      // ၂။ Inline Keyboard Button နှိပ်လိုက်ပါက
       if (update.callback_query) {
         const chatId = update.callback_query.message.chat.id;
         const callbackData = update.callback_query.data;
@@ -72,12 +71,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         await sendTelegramMessage(chatId, `Button နှိပ်လိုက်သော Data: ${callbackData}`);
       }
 
-      
       return Response.json({ status: "success" }, { headers: corsHeaders, status: 200 });
-
-    } catch (error) {
+    } catch (error: any) {
       console.error("Webhook Handling Error:", error);
-    
       return Response.json({ error: error.message }, { headers: corsHeaders, status: 200 });
     }
   }
