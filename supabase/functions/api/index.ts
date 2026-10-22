@@ -82,3 +82,23 @@ export default {
     --data '{"name":"Functions"}'
 
 */
+// Telegram ထံမှ ဝင်လာသော Data ကို လက်ခံခြင်း
+const update = await req.json();
+
+if (update.message) {
+  const chatId = update.message.chat.id;
+  const text = update.message.text;
+
+  // Bot ကနေ စာပြန်ပို့ရန် Telegram API သို့ fetch လုပ်ခြင်း
+  const botToken = "8535213758:AAEv0He3IUAKAPMtEHq8n7Ts3W8LQF9YSDA";
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+
+  await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: `Hello! You said: ${text}` // ကိုယ်ပြန်ချင်တဲ့ စာသား
+    }),
+  });
+}
