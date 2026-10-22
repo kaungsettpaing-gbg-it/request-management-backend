@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Telegram သို့ စာပြန်ပို့ပေးသော Helper Function
+
 async function sendTelegramMessage(chatId: number | string, text: string) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
   
@@ -27,12 +27,12 @@ async function sendTelegramMessage(chatId: number | string, text: string) {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  // CORS Preflight Request များအတွက်
+  
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  // GET Request (Health Check/Status Check)
+  
   if (req.method === "GET") {
     return Response.json(
       {
@@ -46,18 +46,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
   }
 
-  // POST Request များအတွက်
+  
   if (req.method === "POST") {
     try {
       const update = await req.json();
       console.log("Incoming Telegram Update:", JSON.stringify(update));
 
-      // Dashboard သို့မဟုတ် System ရဲ့ Health check / ping test ဝင်လာပါက
+      
       if (update && update.action === "ping") {
         return Response.json({ ok: true, webhook_active: true }, { headers: corsHeaders, status: 200 });
       }
 
-      // ၁။ Message ဝင်လာပါက
+      
       if (update && update.message && update.message.chat) {
         const chatId = update.message.chat.id;
         const text = update.message.text || "";
@@ -69,7 +69,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
       }
 
-      // ၂။ Inline Keyboard Button နှိပ်လိုက်ပါက
+      
       if (update && update.callback_query && update.callback_query.message) {
         const chatId = update.callback_query.message.chat.id;
         const callbackData = update.callback_query.data;
@@ -77,7 +77,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         await sendTelegramMessage(chatId, `Button နှိပ်လိုက်သော Data: ${callbackData}`);
       }
 
-      // အမြဲတမ်း 200 OK Response ပြန်ပေးရန်
+      
       return Response.json({ ok: true, status: "success" }, { headers: corsHeaders, status: 200 });
 
     } catch (error: any) {
