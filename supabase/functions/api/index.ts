@@ -1,104 +1,86 @@
-// Follow this setup guide to integrate the Deno language server with your editor:
-// https://deno.land/manual/getting_started/setup_your_environment
-// This enables autocomplete, go to definition, etc.
-
 // Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
-import { withSupabase } from "@supabase/server";
 
-console.log("Hello from Functions!");
+const BOT_TOKEN = "8535213758:AAEv0He3IUAKAPMtEHq8n7Ts3W8LQF9YSDA";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// This endpoint uses 'publishable' | 'secret' access, apiKey is required.
-// Use publishable for Client-facing, key-validated endpoints
-// Use secret for Server-to-server, internal calls
-const supabaseHandler = withSupabase(
-  { auth: ["publishable", "secret"] },
-  async (req, ctx) => {
-    // Called by another service with a secret key
-    // ctx.supabaseAdmin bypasses RLS — use for privileged operations
-    /*
-    if (ctx.authMode === "secret") {
-      const { user_id } = await req.json();
-      const { data } = await ctx.supabaseAdmin.auth.admin.getUserById(user_id);
 
-      return Response.json({
-        email: data?.user?.email,
-      });
-    }
-    */
-
-    const { name } = await req.json();
-
-    return Response.json({
-      message: `Hello ${name}!`,
+async function sendTelegramMessage(chatId: number | string, text: string) {
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+  
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+      }),
     });
-  },
-);
-
-export default {
-  async fetch(req: Request): Promise<Response> {
-    if (req.method === "OPTIONS") {
-      return new Response(null, { status: 200, headers: corsHeaders });
-    }
-
-    if (req.method === "GET") {
-      return Response.json(
-        {
-          status: "ok",
-          telegram_active: true,
-          webhook_active: true,
-          message: "Supabase Edge Function is running",
-        },
-        { headers: corsHeaders },
-      );
-    }
-
-    const response = await supabaseHandler(req);
-    const headers = new Headers(response.headers);
-    for (const [name, value] of Object.entries(corsHeaders)) {
-      headers.set(name, value);
-    }
-
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
-  },
-};
-
-/* To invoke locally:
-
-  1. Run `supabase start` (see: https://supabase.com/docs/reference/cli/supabase-start)
-  2. Make an HTTP request:
-
-  curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/api' \
-    --header 'apiKey: sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH' \
-    --data '{"name":"Functions"}'
-
-*/
-// Telegram ထံမှ ဝင်လာသော Data ကို လက်ခံခြင်း
-const update = await req.json();
-
-if (update.message) {
-  const chatId = update.message.chat.id;
-  const text = update.message.text;
-
-  // Bot ကနေ စာပြန်ပို့ရန် Telegram API သို့ fetch လုပ်ခြင်း
-  const botToken = "8535213758:AAEv0He3IUAKAPMtEHq8n7Ts3W8LQF9YSDA";
-  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: `Hello! You said: ${text}` // ကိုယ်ပြန်ချင်တဲ့ စာသား
-    }),
-  });
+    return await res.json();
+  } catch (err) {
+    console.error("Error sending message to Telegram:", err);
+  }
 }
+
+Deno.serve(async (req: Request): Promise<Response> => {
+  
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  )
+  if (req.method === "GET") {
+    return Response.json(
+      {
+        status: "ok",
+        telegram_active: true,
+        webhook_active: true,
+        message: "Supabase Edge Function is running",
+      },
+      { headers: corsHeaders }
+    );
+  }
+
+  
+  if (req.method === "POST") {
+    try {
+      const update = await req.json();
+      console.log("Incoming Telegram Update:", JSON.stringify(update));
+
+      
+      if (update.message) {
+        const chatId = update.message.chat.id;
+        const text = update.message.text || "";
+
+        if (text === "/start") {
+          await sendTelegramMessage(chatId, "မင်္ဂလာပါ! မဂ်လာပါ ပို့ပေးလို့ ကျေးဇူးတင်ပါတယ်။ Bot က အလုပ်လုပ်နေပါပြီ။");
+        } else {
+          await sendTelegramMessage(chatId, `သင်ပို့လိုက်သော စာတို: "${text}" ကို လက်ခံရရှိပါသည်။`);
+        }
+      }
+
+      
+      if (update.callback_query) {
+        const chatId = update.callback_query.message.chat.id;
+        const callbackData = update.callback_query.data;
+
+        await sendTelegramMessage(chatId, `Button နှိပ်လိုက်သော Data: ${callbackData}`);
+      }
+
+      
+      return Response.json({ status: "success" }, { headers: corsHeaders, status: 200 });
+
+    } catch (error) {
+      console.error("Webhook Handling Error:", error);
+    
+      return Response.json({ error: error.message }, { headers: corsHeaders, status: 200 });
+    }
+  }
+
+  return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
+});
