@@ -32,27 +32,33 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  // GET Request (Health Check)
+  // GET Request (Health Check/Status Check)
   if (req.method === "GET") {
     return Response.json(
       {
+        ok: true,
         status: "ok",
         telegram_active: true,
         webhook_active: true,
         message: "Supabase Edge Function is running",
       },
-      { headers: corsHeaders }
+      { headers: corsHeaders, status: 200 }
     );
   }
 
-  // Telegram Webhook မှ POST Request များကို လက်ခံခြင်း
+  // POST Request များအတွက်
   if (req.method === "POST") {
     try {
       const update = await req.json();
       console.log("Incoming Telegram Update:", JSON.stringify(update));
 
+      // Dashboard သို့မဟုတ် System ရဲ့ Health check / ping test ဝင်လာပါက
+      if (update && update.action === "ping") {
+        return Response.json({ ok: true, webhook_active: true }, { headers: corsHeaders, status: 200 });
+      }
+
       // ၁။ Message ဝင်လာပါက
-      if (update.message) {
+      if (update && update.message && update.message.chat) {
         const chatId = update.message.chat.id;
         const text = update.message.text || "";
 
@@ -64,17 +70,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
 
       // ၂။ Inline Keyboard Button နှိပ်လိုက်ပါက
-      if (update.callback_query) {
+      if (update && update.callback_query && update.callback_query.message) {
         const chatId = update.callback_query.message.chat.id;
         const callbackData = update.callback_query.data;
 
         await sendTelegramMessage(chatId, `Button နှိပ်လိုက်သော Data: ${callbackData}`);
       }
 
-      return Response.json({ status: "success" }, { headers: corsHeaders, status: 200 });
+      // အမြဲတမ်း 200 OK Response ပြန်ပေးရန်
+      return Response.json({ ok: true, status: "success" }, { headers: corsHeaders, status: 200 });
+
     } catch (error: any) {
       console.error("Webhook Handling Error:", error);
-      return Response.json({ error: error.message }, { headers: corsHeaders, status: 200 });
+      return Response.json({ ok: true, error: error.message }, { headers: corsHeaders, status: 200 });
     }
   }
 
